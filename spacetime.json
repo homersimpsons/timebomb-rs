@@ -1,0 +1,11 @@
+{
+  "database": "timebomb-rs-wl6xt",
+  "dev": {
+    "run": "cargo run"
+  },
+  "server": "maincloud",
+  "module-path": "./server",
+  "generate": [
+    { "language": "typescript", "out-dir": "./client/src/bindings" }
+  ]
+}

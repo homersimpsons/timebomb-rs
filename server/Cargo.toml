@@ -1,10 +1,13 @@
 [package]
 name = "timebomb_rs"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
-[workspace]
-exclude = ["spacetimedb"]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
 
 [dependencies]
-spacetimedb-sdk = { version = "2.10.*" }
+spacetimedb = { version = "2.10.*" }
+log = "0.4"

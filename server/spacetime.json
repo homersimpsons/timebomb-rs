@@ -1,8 +1,0 @@
-{
-  "dev": {
-    "run": "cargo run"
-  },
-  "server": "maincloud",
-  "module-path": "./spacetimedb",
-  "database": "timebomb-rs-wl6xt"
-}
