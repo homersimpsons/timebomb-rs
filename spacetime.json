@@ -1,7 +1,7 @@
 {
   "database": "timebomb-rs-wl6xt",
   "dev": {
-    "run": "cargo run"
+    "run": "cd client && pnpm run dev"
   },
   "server": "maincloud",
   "module-path": "./server",
