@@ -1,0 +1,84 @@
+name: ci
+
+on: push
+
+jobs:
+  ci:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        node: [22]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Install node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      
+      - name: "Server: format check"
+        working-directory: ./server
+        run: cargo fmt -- --check
+      
+      - name: "Server: lint"
+        working-directory: ./server
+        run: cargo clippy -- -D warnings
+      
+      - name: "SpacetimeDB: install" # TODO: Add cache
+        run: curl -sSf https://install.spacetimedb.com | sh -s -- --yes --root-dir .spacetimedb
+
+      - name: "SpacetimeDB: generate"
+        run: .spacetimedb/spacetime generate
+
+      - name: "Client: install dependencies"
+        working-directory: ./client
+        run: pnpm install
+
+      - name: "Client: lint"
+        working-directory: ./client
+        run: pnpm run lint
+
+      - name: "Client: typecheck"
+        working-directory: ./client
+        run: pnpm run typecheck
+
+      - name: "Client: build"
+        working-directory: ./client
+        run: pnpm run build
+        env:
+          NODE_ENV: production
+          NITRO_PRESET: github_pages
+          NUXT_APP_BASE_URL: ${{ github.event.repository.name }}
+          NUXT_PUBLIC_SPACETIMEDB_HOST: ${{ env.SPACETIMEDB_HOST }}
+          NUXT_PUBLIC_SPACETIMEDB_DB_NAME: ${{ env.SPACETIMEDB_DB_NAME }}
+      
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./client/.output/public
+
+  deploy:
+    needs: ci
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      # TODO
+      # - name: "SpacetimeDB: publish"
+      #   run: .spacetimedb/spacetime publish
+      # Deployment job
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

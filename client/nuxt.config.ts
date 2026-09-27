@@ -11,6 +11,13 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  runtimeConfig: {
+    public: {
+      spacetimedbDbName: process.env.SPACETIMEDB_DB_NAME,
+      spacetimedbHost: process.env.SPACETIMEDB_HOST
+    }
+  },
+
   routeRules: {
     '/': { prerender: true }
   },

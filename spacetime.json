@@ -6,6 +6,6 @@
   "server": "maincloud",
   "module-path": "./server",
   "generate": [
-    { "language": "typescript", "out-dir": "./client/src/bindings" }
+    { "language": "typescript", "out-dir": "./client/app/spacetimedb" }
   ]
 }
