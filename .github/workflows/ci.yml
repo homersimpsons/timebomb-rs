@@ -17,26 +17,48 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
+        with:
+          package_json_file: ./client/package.json
 
       - name: Install node
         uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
-      
+          cache-dependency-path: ./client/pnpm-lock.yaml
+
+      # - name: Run sccache-cache
+      #   uses: mozilla-actions/sccache-action@v0.0.7
+
+      # - name: "Server: build"
+      #   working-directory: ./server
+      #   run: cargo build
+      #   env:
+      #     SCCACHE_GHA_ENABLED: "true"
+      #     RUSTC_WRAPPER: "sccache"
+
       - name: "Server: format check"
         working-directory: ./server
         run: cargo fmt -- --check
-      
+
       - name: "Server: lint"
         working-directory: ./server
         run: cargo clippy -- -D warnings
-      
-      - name: "SpacetimeDB: install" # TODO: Add cache
+
+      - name: "SpacetimeDB: install cache"
+        id: cache-spacetimedb
+        uses: actions/cache@v6
+        with:
+          path: .spacetimedb
+          key: ${{ runner.os }}-spacetimedb
+
+      - name: "SpacetimeDB: install"
+        if: steps.cache-spacetimedb.outputs.cache-hit != 'true'
         run: curl -sSf https://install.spacetimedb.com | sh -s -- --yes --root-dir .spacetimedb
 
       - name: "SpacetimeDB: generate"
-        run: .spacetimedb/spacetime generate
+        # run: .spacetimedb/spacetime generate # @see https://github.com/clockworklabs/SpacetimeDB/issues/5993
+        run: .spacetimedb/bin/current/spacetimedb-cli generate
 
       - name: "Client: install dependencies"
         working-directory: ./client
@@ -56,14 +78,15 @@ jobs:
         env:
           NODE_ENV: production
           NITRO_PRESET: github_pages
-          NUXT_APP_BASE_URL: ${{ github.event.repository.name }}
-          NUXT_PUBLIC_SPACETIMEDB_HOST: ${{ env.SPACETIMEDB_HOST }}
-          NUXT_PUBLIC_SPACETIMEDB_DB_NAME: ${{ env.SPACETIMEDB_DB_NAME }}
-      
+          NUXT_APP_BASE_URL: /${{ github.event.repository.name }}/
+          NUXT_PUBLIC_SPACETIMEDB_HOST: ${{ vars.SPACETIMEDB_HOST }}
+          NUXT_PUBLIC_SPACETIMEDB_DB_NAME: ${{ vars.SPACETIMEDB_DB_NAME }}
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./client/.output/public
+          include-hidden-files: true
 
   deploy:
     needs: ci

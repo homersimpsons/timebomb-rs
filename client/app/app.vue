@@ -3,13 +3,14 @@ import type { Identity } from 'spacetimedb'
 import { DbConnection, type ErrorContext } from './spacetimedb'
 import { SpacetimeDBProvider } from 'spacetimedb/vue'
 import coverUrl from '~/assets/img/cover.jpeg?url'
+import faviconUrl from '~/../public/favicon.ico?url'
 
 useHead({
   meta: [
     { name: 'viewport', content: 'width=device-width, initial-scale=1' }
   ],
   link: [
-    { rel: 'icon', href: '/favicon.ico' }
+    { rel: 'icon', href: faviconUrl }
   ],
   htmlAttrs: {
     lang: 'fr'
