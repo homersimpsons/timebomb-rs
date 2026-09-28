@@ -1,6 +1,10 @@
 name: ci
 
-on: push
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
 
 jobs:
   ci:
@@ -27,15 +31,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: ./client/pnpm-lock.yaml
 
-      # - name: Run sccache-cache
-      #   uses: mozilla-actions/sccache-action@v0.0.7
-
-      # - name: "Server: build"
-      #   working-directory: ./server
-      #   run: cargo build
-      #   env:
-      #     SCCACHE_GHA_ENABLED: "true"
-      #     RUSTC_WRAPPER: "sccache"
+      - name: "Server: cache cargo"
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./server
 
       - name: "Server: format check"
         working-directory: ./server
@@ -62,7 +61,7 @@ jobs:
 
       - name: "Client: install dependencies"
         working-directory: ./client
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: "Client: lint"
         working-directory: ./client
@@ -90,6 +89,7 @@ jobs:
 
   deploy:
     needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       pages: write      # to deploy to Pages
       id-token: write   # to verify the deployment originates from an appropriate source

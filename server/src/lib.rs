@@ -348,7 +348,6 @@ pub fn my_game_live(ctx: &ViewContext) -> Option<MyGameLive> {
 #[spacetimedb::reducer]
 pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
     let card_idx = card_idx as usize;
-    log::info!("Picking card {} from player {}", card_idx, pick_player_id);
 
     let user = ctx
         .db
