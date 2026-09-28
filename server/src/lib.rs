@@ -5,8 +5,8 @@ use spacetimedb::{
     Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext, rand::Rng,
 };
 
-const GAME_MIN_PLAYER: usize = 2;
-const GAME_MAX_PLAYER: usize = 2;
+const GAME_MIN_PLAYER: usize = 2; // (inclusive)
+const GAME_MAX_PLAYER: usize = 8; // (inclusive)
 const GAME_CARD_START: usize = 5;
 const GAME_ROUND_MAX: usize = GAME_CARD_START - 1;
 
@@ -210,7 +210,7 @@ pub fn game_join(ctx: &ReducerContext, id: GameId) -> Result<(), String> {
     }
 
     let user_count = ctx.db.game_lobby().game_id().filter(id).count();
-    if user_count >= GAME_MAX_PLAYER {
+    if user_count > GAME_MAX_PLAYER {
         return Err("Lobby is full".into());
     }
     if user_count == 0 {
