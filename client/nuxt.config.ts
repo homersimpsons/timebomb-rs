@@ -1,5 +1,3 @@
-import fs from 'node:fs'
-
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   modules: [
@@ -25,13 +23,6 @@ export default defineNuxtConfig({
   },
 
   compatibilityDate: '2026-06-30',
-
-  hooks: {
-    'nitro:build:public-assets': (nitro) => {
-      // ensure GitHub Pages doesn't run Jekyll on _nuxt assets
-      fs.writeFileSync(`${nitro.options.output.publicDir}/.nojekyll`, '')
-    }
-  },
 
   eslint: {
     config: {
