@@ -62,14 +62,13 @@ const getMoodKeyByValue = (value: Mood): MoodMapKeys => Object.entries(moodMap).
 const moods = Object.keys(moodMap) as MoodMapKeys[]
 const myMood = computed(() => myRow.value.playerCallMood ? getMoodKeyByValue(myRow.value.playerCallMood) : undefined)
 const gameCallMood = useReducer(reducers.gameCallMood)
-const gameCallMoodHandler = (mood: MoodMapKeys) => gameCallMood({ mood: moodMap[mood] })
-// TODO: Add unset mood
+const gameCallMoodHandler = (mood: MoodMapKeys | undefined) => gameCallMood({ mood: mood ? moodMap[mood] : undefined })
 
 const gameCallDefuse = useReducer(reducers.gameCallDefuse)
-const gameCallDefuseHandler = (defuse: number) => gameCallDefuse({ defuse: defuse })
+const gameCallDefuseHandler = (defuse: number | undefined) => gameCallDefuse({ defuse: defuse })
 
 const gameCallBomb = useReducer(reducers.gameCallBomb)
-const gameCallBombHandler = (bomb: boolean) => gameCallBomb({ bomb })
+const gameCallBombHandler = (bomb: boolean | undefined) => gameCallBomb({ bomb })
 
 const playersColumns: TableColumn<DeepReadonly<GameLive>>[] = [
   { accessorKey: 'userId', header: 'Pseudo' },
@@ -77,14 +76,14 @@ const playersColumns: TableColumn<DeepReadonly<GameLive>>[] = [
   {
     accessorKey: 'playerCallBomb', header: 'bomb', cell: ({ row }) => {
       const callBomb = row.original.playerCallBomb
-      return typeof callBomb === 'boolean' ? (callBomb ? '💣' : '🚫') : callBomb
+      return typeof callBomb === 'boolean' ? (callBomb ? '💣' : '🚫') : ''
     }
   },
-  { accessorKey: 'playerCallDefuse', header: 'defuse' },
+  { accessorKey: 'playerCallDefuse', header: 'defuse', cell: ({ row }) => row.original.playerCallDefuse ?? '' },
   {
     accessorKey: 'playerCallMood', header: 'mood', cell: ({ row }) => {
       const callMood = row.original.playerCallMood
-      return callMood ? getMoodKeyByValue(callMood) : undefined
+      return callMood ? getMoodKeyByValue(callMood) : ''
     }
   },
   { accessorKey: 'actions', header: 'Actions' }
@@ -160,6 +159,12 @@ const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickC
                 label="bomb"
                 name="bomb"
               >
+                <template #hint>
+                  <UIcon
+                    name="i-lucide-eraser"
+                    @click="gameCallBombHandler(undefined)"
+                  />
+                </template>
                 <USwitch
                   :model-value="myRow.playerCallBomb"
                   @update:model-value="gameCallBombHandler"
@@ -169,6 +174,12 @@ const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickC
                 label="defuse"
                 name="defuse"
               >
+                <template #hint>
+                  <UIcon
+                    name="i-lucide-eraser"
+                    @click="gameCallDefuseHandler(undefined)"
+                  />
+                </template>
                 <UInputNumber
                   size="xs"
                   :model-value="myRow.playerCallDefuse"
@@ -180,6 +191,12 @@ const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickC
               label="mood"
               name="mood"
             >
+              <template #hint>
+                <UIcon
+                  name="i-lucide-eraser"
+                  @click="gameCallMoodHandler(undefined)"
+                />
+              </template>
               <URadioGroup
                 :model-value="myMood"
                 :items="moods"
