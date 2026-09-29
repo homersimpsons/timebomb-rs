@@ -21,7 +21,8 @@ const props = defineProps<{
 
 const myRow = computed(() => props.game.playerRows.find(row => row.userId === props.me.id)!)
 const otherRows = computed(() => props.game.playerRows.filter(row => row.userId !== props.me.id))
-const myTurn = computed(() => props.game.timelineUsersId.at(-1) === props.me.id)
+const playingUserId = computed(() => props.game.timelineUsersId.at(-1))
+const myTurn = computed(() => playingUserId.value === props.me.id)
 const bombCount = computed(() => props.game.playerRows.filter(p => p.playerCallBomb).length)
 const defuseCount = computed(() => props.game.playerRows.map(p => p.playerCallDefuse ?? 0).reduce((acc, val) => acc + val, 0))
 const defuseFoundCount = computed(() => props.game.timelineCards.filter(card => card.tag === Card.Defuse.tag).length)
@@ -142,7 +143,7 @@ const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickC
       <div class="flex items-center gap-4 mb-2">
         <div>
           <img
-            v-show="! showSensitiveInfo"
+            v-show="!showSensitiveInfo"
             src="~/assets/img/back.png"
             alt="Hidden"
           >
@@ -199,7 +200,7 @@ const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickC
           :key="card"
         >
           <img
-            v-show="! showSensitiveInfo"
+            v-show="!showSensitiveInfo"
             src="~/assets/img/back.png"
             alt="Hidden"
           >
@@ -247,6 +248,16 @@ const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickC
         :columns="playersColumns"
         class="flex-1"
       >
+        <template #userId-cell="{ row }">
+          <p class="flex items-center">
+            {{ row.original.userId }}
+            <UIcon
+              v-show="playingUserId === row.original.userId"
+              name="i-lucide-loader-circle"
+              class="ml-2 animate-spin"
+            />
+          </p>
+        </template>
         <template #actions-cell="{ row }">
           <UDrawer
             v-if="myTurn"
