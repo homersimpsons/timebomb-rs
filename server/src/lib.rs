@@ -101,8 +101,8 @@ pub struct GameLive {
     game_id: GameId,
     player_role: Role,
     player_cards: Vec<Card>,
-    player_call_bomb: bool, // TODO: Add uncalled
-    player_call_defuse: u8, // TODO: Add uncalled
+    player_call_bomb: Option<bool>,
+    player_call_defuse: Option<u8>,
     player_call_mood: Option<Mood>,
 }
 
@@ -318,8 +318,8 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
             game_id: game.id,
             player_role: row.1.0,
             player_cards: row.1.1,
-            player_call_bomb: false,
-            player_call_defuse: 0,
+            player_call_bomb: None,
+            player_call_defuse: None,
             player_call_mood: None,
         });
     }
@@ -422,8 +422,8 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
     }
 
     game_players.iter_mut().for_each(|gp| {
-        gp.player_call_bomb = false;
-        gp.player_call_defuse = 0;
+        gp.player_call_bomb = None;
+        gp.player_call_defuse = None;
         gp.player_call_mood = None;
     });
 
@@ -468,14 +468,14 @@ fn game_call_mood(ctx: &ReducerContext, mood: Option<Mood>) {
 }
 
 #[spacetimedb::reducer]
-fn game_call_defuse(ctx: &ReducerContext, defuse: u8) {
+fn game_call_defuse(ctx: &ReducerContext, defuse: Option<u8>) {
     let (_user, mut player_game) = relove_user_game_live(ctx);
     player_game.player_call_defuse = defuse;
     ctx.db.game_live().user_id().update(player_game);
 }
 
 #[spacetimedb::reducer]
-fn game_call_bomb(ctx: &ReducerContext, bomb: bool) {
+fn game_call_bomb(ctx: &ReducerContext, bomb: Option<bool>) {
     let (_user, mut player_game) = relove_user_game_live(ctx);
     player_game.player_call_bomb = bomb;
     ctx.db.game_live().user_id().update(player_game);
