@@ -119,10 +119,7 @@ function isMoriartyWin(game: ReadonlyGameDone) {
       >
         <template #users-cell="{ row }">
           <!-- TODO: replace userIds with actual user names -->
-          <span
-            v-for="([id], index) in row.original.users"
-            :key="index"
-          >{{ id }}</span>
+          {{ row.original.users.map(u => u[0]).join(', ') }}
         </template>
         <template #actions-cell="{ row }">
           <UButton
@@ -148,8 +145,8 @@ function isMoriartyWin(game: ReadonlyGameDone) {
       >
         <UCard class="mb-2">
           <p>Vainqueur: {{ isMoriartyWin(game) ? 'Moriarty' : 'Sherlock' }}</p>
-          <p>Moriarty: {{ game.players.filter(p => !p.isSherlock).map(p => p.name).join(', ') }}</p>
-          <p>Sherlock: {{ game.players.filter(p => p.isSherlock).map(p => p.name).join(', ') }}</p>
+          <p>Moriarty: {{ game.players.filter(p => p.isMoriarty).map(p => p.name).join(', ') }}</p>
+          <p>Sherlock: {{ game.players.filter(p => !p.isMoriarty).map(p => p.name).join(', ') }}</p>
         </UCard>
         <!-- <UBadge :label="`Game ${game.id}`" variant="soft" /> -->
       </template>

@@ -11,6 +11,29 @@ const GAME_CARD_START: usize = 5;
 const GAME_ROUND_MAX: usize = GAME_CARD_START - 1;
 
 #[derive(Copy, Clone, PartialEq, SpacetimeType)]
+enum Role {
+    Sherlock0,
+    Sherlock1,
+    Sherlock2,
+    Sherlock3,
+    Sherlock4,
+    Moriarty0,
+    Moriarty1,
+    Moriarty2,
+}
+
+const ROLES: [Role; 8] = [
+    Role::Sherlock0,
+    Role::Moriarty0,
+    Role::Sherlock1,
+    Role::Moriarty1,
+    Role::Sherlock2,
+    Role::Sherlock3,
+    Role::Moriarty2,
+    Role::Sherlock4,
+];
+
+#[derive(Copy, Clone, PartialEq, SpacetimeType)]
 enum Card {
     Secure,
     Bomb,
@@ -76,7 +99,7 @@ pub struct GameLive {
     user_id: PlayerId,
     #[index(btree)]
     game_id: GameId,
-    player_sherlock: bool,
+    player_role: Role,
     player_cards: Vec<Card>,
     player_call_bomb: bool, // TODO: Add uncalled
     player_call_defuse: u8, // TODO: Add uncalled
@@ -86,7 +109,7 @@ pub struct GameLive {
 #[derive(SpacetimeType)]
 struct PlayerSherlock {
     name: String,
-    is_sherlock: bool,
+    is_moriarty: bool,
 }
 #[spacetimedb::table(accessor = game_done, public)]
 pub struct GameDone {
@@ -274,13 +297,9 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
     let starting_player_idx = ctx.rng().gen_range(0..user_ids.len());
     let starting_player_id = user_ids[starting_player_idx];
 
-    let nb_of_sherlock = (player_count * 2 / 3) as u32;
-    let mut players_sherlock: Vec<bool> = user_ids
-        .iter()
-        .enumerate()
-        .map(|(i, _)| (i as u32) < nb_of_sherlock)
-        .collect();
-    shuffle(&mut players_sherlock, &mut ctx.rng());
+    // TODO: Follow rules regarding roles assignations
+    let mut players_roles = ROLES.iter().take(player_count).cloned().collect::<Vec<_>>();
+    shuffle(&mut players_roles, &mut ctx.rng());
 
     let mut cards: Vec<Card> = Vec::with_capacity(player_count * GAME_CARD_START);
     cards.push(Card::Bomb);
@@ -293,11 +312,11 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
     let players_cards = distribute_cards(cards, player_count);
 
     ctx.db.game_lobby().game_id().delete(game_id);
-    for row in zip(user_ids, zip(players_sherlock, players_cards)) {
+    for row in zip(user_ids, zip(players_roles, players_cards)) {
         ctx.db.game_live().insert(GameLive {
             user_id: row.0,
             game_id: game.id,
-            player_sherlock: row.1.0,
+            player_role: row.1.0,
             player_cards: row.1.1,
             player_call_bomb: false,
             player_call_defuse: 0,
@@ -349,21 +368,10 @@ pub fn my_game_live(ctx: &ViewContext) -> Option<MyGameLive> {
 pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
     let card_idx = card_idx as usize;
 
-    let user = ctx
-        .db
-        .user()
-        .identity()
-        .find(ctx.sender())
-        .expect("User not found");
+    let (user, game_picker) = relove_user_game_live(ctx);
     if pick_player_id == user.id {
         panic!("Cannot pick your own card"); // TODO: error
     }
-    let game_picker = ctx
-        .db
-        .game_live()
-        .user_id()
-        .find(user.id)
-        .expect("Game not found");
     let mut game = ctx
         .db
         .game()
@@ -454,54 +462,21 @@ fn distribute_cards(cards: Vec<Card>, nb_of_players: usize) -> Vec<Vec<Card>> {
 
 #[spacetimedb::reducer]
 fn game_call_mood(ctx: &ReducerContext, mood: Option<Mood>) {
-    let user = ctx
-        .db
-        .user()
-        .identity()
-        .find(ctx.sender())
-        .expect("User not found");
-    let mut player_game = ctx
-        .db
-        .game_live()
-        .user_id()
-        .find(user.id)
-        .expect("User not in live game");
+    let (_user, mut player_game) = relove_user_game_live(ctx);
     player_game.player_call_mood = mood;
     ctx.db.game_live().user_id().update(player_game);
 }
 
 #[spacetimedb::reducer]
 fn game_call_defuse(ctx: &ReducerContext, defuse: u8) {
-    let user = ctx
-        .db
-        .user()
-        .identity()
-        .find(ctx.sender())
-        .expect("User not found");
-    let mut player_game = ctx
-        .db
-        .game_live()
-        .user_id()
-        .find(user.id)
-        .expect("User not in live game");
+    let (_user, mut player_game) = relove_user_game_live(ctx);
     player_game.player_call_defuse = defuse;
     ctx.db.game_live().user_id().update(player_game);
 }
 
 #[spacetimedb::reducer]
 fn game_call_bomb(ctx: &ReducerContext, bomb: bool) {
-    let user = ctx
-        .db
-        .user()
-        .identity()
-        .find(ctx.sender())
-        .expect("User not found");
-    let mut player_game = ctx
-        .db
-        .game_live()
-        .user_id()
-        .find(user.id)
-        .expect("User not in live game");
+    let (_user, mut player_game) = relove_user_game_live(ctx);
     player_game.player_call_bomb = bomb;
     ctx.db.game_live().user_id().update(player_game);
 }
@@ -510,11 +485,8 @@ fn process_game_finished(ctx: &ReducerContext, game: &Game, game_players: &[Game
     ctx.db.game_live().game_id().delete(game.id);
     ctx.db.game().id().delete(game.id);
 
-    let user_id_idx = game_players
-        .iter()
-        .enumerate()
-        .map(|(idx, gp)| (gp.user_id, idx as u8))
-        .collect::<std::collections::HashMap<_, _>>();
+    let mut user_ids = game_players.iter().map(|gp| gp.user_id).collect::<Vec<_>>();
+    user_ids.sort();
     let inserted_game = ctx.db.game_done().insert(GameDone {
         id: 0,
         finished_at: ctx.timestamp,
@@ -522,16 +494,36 @@ fn process_game_finished(ctx: &ReducerContext, game: &Game, game_players: &[Game
             .iter()
             .map(|gp| PlayerSherlock {
                 name: gp.user_id.to_string(), // TODO: Use actual user names instead of IDs
-                is_sherlock: gp.player_sherlock,
+                is_moriarty: matches!(
+                    gp.player_role,
+                    Role::Moriarty0 | Role::Moriarty1 | Role::Moriarty2
+                ),
             })
             .collect::<Vec<_>>(),
         timeline_users_idx: game
             .timeline_users_id
             .iter()
-            .map(|user_id| *user_id_idx.get(user_id).unwrap())
+            .map(|user_id| user_ids.binary_search(user_id).unwrap() as u8)
             .collect::<Vec<_>>(),
         timeline_cards: game.timeline_cards.clone(),
     });
     // TODO: Figure out a better way to manage old finished games
     ctx.db.game_done().id().delete(inserted_game.id - 5);
+}
+
+fn relove_user_game_live(ctx: &ReducerContext) -> (User, GameLive) {
+    let user = ctx
+        .db
+        .user()
+        .identity()
+        .find(ctx.sender())
+        .expect("User not found");
+    let player_game = ctx
+        .db
+        .game_live()
+        .user_id()
+        .find(user.id)
+        .expect("User not in live game");
+
+    (user, player_game)
 }

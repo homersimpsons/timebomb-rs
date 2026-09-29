@@ -3,8 +3,16 @@ import type { TableColumn, TimelineItem } from '@nuxt/ui'
 import type { DeepReadonly } from '~/utils'
 import { useReducer } from 'spacetimedb/vue'
 import { reducers } from '~/spacetimedb'
-import { Mood, Card } from '~/spacetimedb/types'
+import { Mood, Card, Role } from '~/spacetimedb/types'
 import type { GameLive, MyGameLive, User } from '~/spacetimedb/types'
+import sherlock0 from '~/assets/img/sherlock_0.png'
+import sherlock1 from '~/assets/img/sherlock_1.png'
+import sherlock2 from '~/assets/img/sherlock_2.png'
+import sherlock3 from '~/assets/img/sherlock_3.png'
+import sherlock4 from '~/assets/img/sherlock_4.png'
+import moriarty0 from '~/assets/img/moriarty_0.png'
+import moriarty1 from '~/assets/img/moriarty_1.png'
+import moriarty2 from '~/assets/img/moriarty_2.png'
 
 const props = defineProps<{
   game: DeepReadonly<MyGameLive>
@@ -20,6 +28,22 @@ const defuseFoundCount = computed(() => props.game.timelineCards.filter(card => 
 const defuseRemainingCount = computed(() => props.game.playerRows.length - defuseFoundCount.value)
 
 const showSensitiveInfo = ref(false)
+
+// eslint-disable-next-line vue/return-in-computed-property -- already covered by TypeScript
+const myRoleImg = computed((): string => {
+  switch (myRow.value.playerRole.tag) {
+    case Role.Sherlock0.tag: return sherlock0
+    case Role.Moriarty0.tag: return moriarty0
+    case Role.Sherlock1.tag: return sherlock1
+    case Role.Moriarty1.tag: return moriarty1
+    case Role.Sherlock2.tag: return sherlock2
+    case Role.Sherlock3.tag: return sherlock3
+    case Role.Moriarty2.tag: return moriarty2
+    case Role.Sherlock4.tag: return sherlock4
+  }
+})
+// @ts-expect-error TS2345 TypeScript incorrectly reports an error for the includes check
+const myRoleAlt = computed(() => [Role.Moriarty0.tag, Role.Moriarty1.tag, Role.Moriarty2.tag].includes(myRow.value.playerRole.tag) ? 'Moriarty' : 'Sherlock')
 
 const moodMap = {
   '😇': Mood.Angel,
@@ -47,7 +71,7 @@ const gameCallBomb = useReducer(reducers.gameCallBomb)
 const gameCallBombHandler = (bomb: boolean) => gameCallBomb({ bomb })
 
 const playersColumns: TableColumn<DeepReadonly<GameLive>>[] = [
-  //   { accessorKey: 'name', header: 'Pseudo' },
+  { accessorKey: 'userId', header: 'Pseudo' },
   { accessorKey: 'playerCards', header: 'cards', cell: ({ row }) => row.original.playerCards.length },
   {
     accessorKey: 'playerCallBomb', header: 'bomb', cell: ({ row }) => {
@@ -89,12 +113,8 @@ const timeline = computed<TimelineItem[]>(() => {
   return timelineItems
 })
 
-const gamePickDrawerOpen = ref(false)
 const gamePickCard = useReducer(reducers.gamePickCard)
-const gamePickCardHandler = async (pickPlayerId: number, cardIdx: number) => {
-  await gamePickCard({ pickPlayerId, cardIdx })
-  gamePickDrawerOpen.value = false
-}
+const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickCard({ pickPlayerId, cardIdx })
 </script>
 
 <template>
@@ -119,7 +139,6 @@ const gamePickCardHandler = async (pickPlayerId: number, cardIdx: number) => {
         </div>
       </template>
 
-      <!-- TODO: _1, _2, _3 -->
       <div class="flex items-center gap-4 mb-2">
         <div>
           <img
@@ -129,15 +148,8 @@ const gamePickCardHandler = async (pickPlayerId: number, cardIdx: number) => {
           >
           <img
             v-show="showSensitiveInfo"
-            v-if="myRow.playerSherlock"
-            src="~/assets/img/sherlock_0.png"
-            alt="Sherlock"
-          >
-          <img
-            v-show="showSensitiveInfo"
-            v-else
-            src="~/assets/img/moriarty_0.png"
-            alt="Moriarty"
+            :src="myRoleImg"
+            :alt="myRoleAlt"
           >
         </div>
         <div>
@@ -237,12 +249,12 @@ const gamePickCardHandler = async (pickPlayerId: number, cardIdx: number) => {
       >
         <template #actions-cell="{ row }">
           <UDrawer
-            v-model:open="gamePickDrawerOpen"
+            v-if="myTurn"
             :handle="false"
             title="Choisis une carte à piocher"
             close
           >
-            <UButton v-show="myTurn">
+            <UButton>
               Pick
             </UButton>
             <template #body>
