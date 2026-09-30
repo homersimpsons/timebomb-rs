@@ -11,6 +11,11 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  colorMode: {
+    preference: 'system',
+    fallback: 'dark'
+  },
+
   runtimeConfig: {
     public: {
       spacetimedbDbName: process.env.SPACETIMEDB_DB_NAME,

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import type { TableColumn, TimelineItem } from '@nuxt/ui'
+import type { TimelineItem } from '@nuxt/ui'
 import type { DeepReadonly } from '~/utils'
 import { useReducer } from 'spacetimedb/vue'
 import { reducers } from '~/spacetimedb'
 import { Mood, Card, Role } from '~/spacetimedb/types'
-import type { GameLive, MyGameLive, User } from '~/spacetimedb/types'
+import type { MyGameLive, User } from '~/spacetimedb/types'
 import sherlock0 from '~/assets/img/sherlock_0.png'
 import sherlock1 from '~/assets/img/sherlock_1.png'
 import sherlock2 from '~/assets/img/sherlock_2.png'
@@ -71,37 +71,23 @@ const gameCallDefuseHandler = (defuse: number) => gameCallDefuse({ defuse: defus
 const gameCallBomb = useReducer(reducers.gameCallBomb)
 const gameCallBombHandler = (bomb: boolean) => gameCallBomb({ bomb })
 
-const playersColumns: TableColumn<DeepReadonly<GameLive>>[] = [
-  { accessorKey: 'userId', header: 'Pseudo' },
-  { accessorKey: 'playerCards', header: 'cards', cell: ({ row }) => row.original.playerCards.length },
-  {
-    accessorKey: 'playerCallBomb', header: 'bomb', cell: ({ row }) => {
-      const callBomb = row.original.playerCallBomb
-      return typeof callBomb === 'boolean' ? (callBomb ? '💣' : '🚫') : callBomb
-    }
-  },
-  { accessorKey: 'playerCallDefuse', header: 'defuse' },
-  {
-    accessorKey: 'playerCallMood', header: 'mood', cell: ({ row }) => {
-      const callMood = row.original.playerCallMood
-      return callMood ? getMoodKeyByValue(callMood) : undefined
-    }
-  },
-  { accessorKey: 'actions', header: 'Actions' }
-]
-
 const timeline = computed<TimelineItem[]>(() => {
   const timelineItems: TimelineItem[] = []
   for (const [idx, card] of props.game.timelineCards.entries()) {
     const picker = props.game.timelineUsersId[idx]
     const picked = props.game.timelineUsersId[idx + 1]
+    const cardLabel = {
+      [Card.Secure.tag]: 'un câble sécurisé',
+      [Card.Defuse.tag]: 'un câble de désamorçage',
+      [Card.Bomb.tag]: 'la bombe'
+    }[card.tag]
     timelineItems.push({
-      description: `${picker} a pioché chez ${picked}`,
-      icon: card.tag === Card.Secure.tag
-        ? 'i-lucide-shield'
-        : card.tag === Card.Defuse.tag
-          ? 'i-lucide-shield-plus'
-          : 'i-lucide-bomb'
+      description: `${picker} a pioché ${cardLabel} chez ${picked}`,
+      icon: {
+        [Card.Secure.tag]: 'i-lucide-shield',
+        [Card.Defuse.tag]: 'i-lucide-shield-plus',
+        [Card.Bomb.tag]: 'i-lucide-bomb'
+      }[card.tag]
     })
   }
 
@@ -115,11 +101,15 @@ const timeline = computed<TimelineItem[]>(() => {
 })
 
 const gamePickCard = useReducer(reducers.gamePickCard)
-const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickCard({ pickPlayerId, cardIdx })
+const gamePickCardHandler = async (pickPlayerId: number, cardIdx: number) => {
+  await gamePickCard({ pickPlayerId, cardIdx })
+  pickerSelected.value = null
+}
+const pickerSelected = ref<number | null>(null)
 </script>
 
 <template>
-  <UContainer>
+  <UContainer class="pt-2">
     <UCard class="mb-2">
       <template #header>
         <div class="flex items-center justify-between">
@@ -127,7 +117,7 @@ const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickC
             <h2>Mes informations</h2>
             <UButton
               v-show="myTurn"
-              label="mon tour"
+              label="À vous de jouer"
               loading
               size="xs"
             />
@@ -154,30 +144,28 @@ const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickC
           >
         </div>
         <div>
-          <div>
-            <div class="flex items-start gap-4 mb-2">
-              <UFormField
-                label="bomb"
-                name="bomb"
-              >
-                <USwitch
-                  :model-value="myRow.playerCallBomb"
-                  @update:model-value="gameCallBombHandler"
-                />
-              </UFormField>
-              <UFormField
-                label="defuse"
-                name="defuse"
-              >
-                <UInputNumber
-                  size="xs"
-                  :model-value="myRow.playerCallDefuse"
-                  @update:model-value="gameCallDefuseHandler"
-                />
-              </UFormField>
-            </div>
+          <div class="space-y-4">
             <UFormField
-              label="mood"
+              label="Avez-vous la bombe ?"
+              name="bomb"
+            >
+              <USwitch
+                :model-value="myRow.playerCallBomb"
+                @update:model-value="gameCallBombHandler"
+              />
+            </UFormField>
+            <UFormField
+              label="Combien avez-vous de désamorçage ?"
+              name="defuse"
+            >
+              <UInputNumber
+                size="xs"
+                :model-value="myRow.playerCallDefuse"
+                @update:model-value="gameCallDefuseHandler"
+              />
+            </UFormField>
+            <UFormField
+              label="Quelle est votre humeur ?"
               name="mood"
             >
               <URadioGroup
@@ -243,51 +231,84 @@ const gamePickCardHandler = (pickPlayerId: number, cardIdx: number) => gamePickC
           </div>
         </div>
       </template>
-      <UTable
-        :data="otherRows"
-        :columns="playersColumns"
-        class="flex-1"
-      >
-        <template #userId-cell="{ row }">
-          <p class="flex items-center">
-            {{ row.original.userId }}
-            <UIcon
-              v-show="playingUserId === row.original.userId"
-              name="i-lucide-loader-circle"
-              class="ml-2 animate-spin"
-            />
-          </p>
-        </template>
-        <template #actions-cell="{ row }">
-          <UDrawer
-            v-if="myTurn"
-            :handle="false"
-            title="Choisis une carte à piocher"
-            close
+      <UPageGrid>
+        <UPageCard
+          v-for="player in otherRows"
+          :key="player.userId"
+          @click="pickerSelected = player.userId"
+        >
+          <template
+            #title
           >
-            <UButton>
-              Pick
-            </UButton>
-            <template #body>
-              <UContainer>
-                <!-- TODO: Fix design when <5 cards -->
-                <div class="flex gap-4">
-                  <div
-                    v-for="(_card, cardIdx) in row.original.playerCards"
-                    :key="cardIdx"
-                    class="m-2"
-                  >
-                    <img
-                      src="~/assets/img/back.png"
-                      @click="gamePickCardHandler(row.original.userId, cardIdx)"
-                    >
-                  </div>
-                </div>
-              </UContainer>
-            </template>
-          </UDrawer>
-        </template>
-      </UTable>
+            <p class="flex items-center gap-2">
+              {{ player.userId.toString() }}
+              <UButton
+                v-if="playingUserId === player.userId"
+                :loading="true"
+                size="xs"
+                label="Réfléchit où piocher"
+              />
+              <UDrawer
+                v-if="myTurn"
+                :handle="false"
+                title="Choisis une carte à piocher"
+                close
+                :open="pickerSelected === player.userId"
+                @update:open="val => pickerSelected = (val ? player.userId : null)"
+              >
+                <UButton
+                  icon="i-lucide-hand"
+                  size="xs"
+                  label="Piocher une carte"
+                />
+                <template #body>
+                  <UContainer>
+                    <!-- TODO: Fix design when <5 cards -->
+                    <div class="flex gap-4">
+                      <div
+                        v-for="(_card, cardIdx) in player.playerCards"
+                        :key="cardIdx"
+                        class="m-2"
+                      >
+                        <img
+                          src="~/assets/img/back.png"
+                          @click="gamePickCardHandler(player.userId, cardIdx)"
+                        >
+                      </div>
+                    </div>
+                  </UContainer>
+                </template>
+              </UDrawer>
+            </p>
+          </template>
+
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div class="flex items-center gap-2">
+              <UIcon name="i-lucide-playing-cards-fan" />
+              <span>{{ player.playerCards.length }} cartes</span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <UIcon name="i-lucide-bomb" />
+              <span>
+                {{ player.playerCallBomb === true ? 'Bombe' : 'Pas de bombe' }}
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <UIcon name="i-lucide-shield-plus" />
+              <span>{{ player.playerCallDefuse ?? 0 }} désamorçage</span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <span>
+                {{ player.playerCallMood ? getMoodKeyByValue(player.playerCallMood) : '—' }}
+              </span>
+              <span>humeur</span>
+            </div>
+          </div>
+        </UPageCard>
+      </UPageGrid>
     </UCard>
     <UCard class="mb-2">
       <template #header>
