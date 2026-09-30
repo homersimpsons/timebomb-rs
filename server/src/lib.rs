@@ -1,8 +1,9 @@
 use core::panic;
-use std::iter::{repeat_n, zip};
+use std::iter::{once, repeat, repeat_n, zip};
 
 use spacetimedb::{
-    Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext, rand::Rng,
+    Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext,
+    rand::{Rng, seq::SliceRandom},
 };
 
 const GAME_MIN_PLAYER: usize = 2; // (inclusive)
@@ -50,14 +51,6 @@ enum Mood {
     Detective,
     Cool,
     Laughing,
-}
-
-fn shuffle<T>(vec: &mut [T], rng: &mut impl Rng) {
-    let len = vec.len();
-    for i in (1..len).rev() {
-        let j = rng.gen_range(0..=i);
-        vec.swap(i, j);
-    }
 }
 
 type PlayerId = u32; // TODO: convert to UUID
@@ -118,9 +111,9 @@ pub struct GameDone {
     id: u32, // TODO: convert to UUID
     #[index(btree)]
     finished_at: Timestamp,
-    players: Vec<PlayerSherlock>,
-    timeline_users_idx: Vec<u8>,
-    timeline_cards: Vec<Card>,
+    players: Box<[PlayerSherlock]>,
+    timeline_users_idx: Box<[u8]>,
+    timeline_cards: Box<[Card]>,
 }
 
 #[spacetimedb::reducer(init)]
@@ -277,7 +270,7 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
         .game_lobby()
         .game_id()
         .filter(game_id)
-        .collect::<Vec<_>>();
+        .collect::<Box<_>>();
     let player_count = game_users.len();
     if player_count < GAME_MIN_PLAYER {
         return;
@@ -292,45 +285,45 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
 
     let mut game = ctx.db.game().id().find(game_id).expect("Game not found");
 
-    let user_ids = game_users.iter().map(|g| g.user_id).collect::<Vec<_>>();
+    let user_ids = game_users.iter().map(|g| g.user_id).collect::<Box<_>>();
 
     let starting_player_idx = ctx.rng().gen_range(0..user_ids.len());
     let starting_player_id = user_ids[starting_player_idx];
 
     // TODO: Follow rules regarding roles assignations
-    let mut players_roles = ROLES.iter().take(player_count).cloned().collect::<Vec<_>>();
-    shuffle(&mut players_roles, &mut ctx.rng());
+    let mut players_roles = ROLES.iter().take(player_count).cloned().collect::<Box<_>>();
+    players_roles.shuffle(&mut ctx.rng());
 
-    let mut cards: Vec<Card> = Vec::with_capacity(player_count * GAME_CARD_START);
-    cards.push(Card::Bomb);
-    cards.extend(repeat_n(Card::Defuse, player_count));
-    cards.extend(repeat_n(
-        Card::Secure,
-        player_count * GAME_CARD_START - player_count - 1,
-    ));
-    shuffle(&mut cards, &mut ctx.rng());
-    let players_cards = distribute_cards(cards, player_count);
-
-    ctx.db.game_lobby().game_id().delete(game_id);
-    for row in zip(user_ids, zip(players_roles, players_cards)) {
-        ctx.db.game_live().insert(GameLive {
-            user_id: row.0,
+    let mut game_players = zip(user_ids, players_roles)
+        .map(|(user_id, player_role)| GameLive {
+            user_id,
             game_id: game.id,
-            player_role: row.1.0,
-            player_cards: row.1.1,
+            player_role,
+            player_cards: Vec::new(),
             player_call_bomb: false,
             player_call_defuse: 0,
             player_call_mood: None,
-        });
-    }
+        })
+        .collect::<Box<_>>();
 
+    let mut cards = once(Card::Bomb)
+        .chain(repeat_n(Card::Defuse, player_count))
+        .chain(repeat(Card::Secure))
+        .take(player_count * GAME_CARD_START)
+        .collect::<Box<_>>();
+    distribute_cards(&mut game_players, &mut cards, &mut ctx.rng());
+
+    ctx.db.game_lobby().game_id().delete(game_id);
+    game_players.into_iter().for_each(|row| {
+        ctx.db.game_live().insert(row);
+    });
     game.timeline_users_id.push(starting_player_id);
     ctx.db.game().id().update(game);
 }
 
 #[derive(SpacetimeType)]
 pub struct MyGameLive {
-    player_rows: Vec<GameLive>,
+    player_rows: Box<[GameLive]>,
     timeline_users_id: Vec<PlayerId>,
     timeline_cards: Vec<Card>,
 }
@@ -348,7 +341,7 @@ pub fn my_game_live(ctx: &ViewContext) -> Option<MyGameLive> {
         .game_live()
         .game_id()
         .filter(player_game.game_id)
-        .collect::<Vec<_>>();
+        .collect::<Box<_>>();
     let game = ctx
         .db
         .game()
@@ -387,7 +380,8 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
         .game_live()
         .game_id()
         .filter(game_picker.game_id)
-        .collect::<Vec<_>>();
+        .collect::<Box<_>>();
+    let player_count = game_players.len();
 
     let game_picked = game_players
         .iter_mut()
@@ -402,8 +396,6 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
         return;
     }
 
-    let player_count = game_players.len();
-
     if card == Card::Defuse {
         let nb_of_defuse = game
             .timeline_cards
@@ -414,6 +406,7 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
             process_game_finished(ctx, &game, &game_players);
             return;
         }
+        game_picked.player_call_defuse = game_picked.player_call_defuse.saturating_sub(1);
     }
 
     if game.timeline_cards.len() >= player_count * GAME_ROUND_MAX {
@@ -421,25 +414,12 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
         return;
     }
 
-    game_players.iter_mut().for_each(|gp| {
-        gp.player_call_bomb = false;
-        gp.player_call_defuse = 0;
-        gp.player_call_mood = None;
-    });
-
     if game.timeline_cards.len().is_multiple_of(player_count) {
         let mut cards = game_players
             .iter()
             .flat_map(|gp| gp.player_cards.clone())
-            .collect::<Vec<_>>();
-        shuffle(&mut *cards.as_mut_slice(), &mut ctx.rng());
-        let distributed_cards = distribute_cards(cards, player_count);
-        game_players
-            .iter_mut()
-            .zip(distributed_cards)
-            .for_each(|(gp, new_cards)| {
-                gp.player_cards = new_cards;
-            });
+            .collect::<Box<_>>();
+        distribute_cards(&mut game_players, &mut cards, &mut ctx.rng());
     }
 
     for gp in game_players {
@@ -448,16 +428,18 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
     ctx.db.game().id().update(game);
 }
 
-fn distribute_cards(cards: Vec<Card>, nb_of_players: usize) -> Vec<Vec<Card>> {
-    assert!(
-        cards.len().is_multiple_of(nb_of_players),
-        "Not enough players"
-    );
-    let cards_per_player = cards.len() / nb_of_players;
-    let mut cards = cards;
-    (0..nb_of_players)
-        .map(|_| cards.split_off(cards.len() - cards_per_player))
-        .collect()
+fn distribute_cards(game_players: &mut [GameLive], cards: &mut Box<[Card]>, rng: &mut impl Rng) {
+    cards.shuffle(rng);
+    let cards_per_player = cards.len() / game_players.len();
+    game_players
+        .iter_mut()
+        .zip(cards.chunks_exact(cards_per_player))
+        .for_each(|(gp, new_cards)| {
+            gp.player_cards = new_cards.to_vec();
+            gp.player_call_bomb = false;
+            gp.player_call_defuse = 0;
+            gp.player_call_mood = None;
+        });
 }
 
 #[spacetimedb::reducer]
@@ -485,7 +467,7 @@ fn process_game_finished(ctx: &ReducerContext, game: &Game, game_players: &[Game
     ctx.db.game_live().game_id().delete(game.id);
     ctx.db.game().id().delete(game.id);
 
-    let mut user_ids = game_players.iter().map(|gp| gp.user_id).collect::<Vec<_>>();
+    let mut user_ids = game_players.iter().map(|gp| gp.user_id).collect::<Box<_>>();
     user_ids.sort();
     let inserted_game = ctx.db.game_done().insert(GameDone {
         id: 0,
@@ -499,13 +481,13 @@ fn process_game_finished(ctx: &ReducerContext, game: &Game, game_players: &[Game
                     Role::Moriarty0 | Role::Moriarty1 | Role::Moriarty2
                 ),
             })
-            .collect::<Vec<_>>(),
+            .collect::<Box<_>>(),
         timeline_users_idx: game
             .timeline_users_id
             .iter()
             .map(|user_id| user_ids.binary_search(user_id).unwrap() as u8)
-            .collect::<Vec<_>>(),
-        timeline_cards: game.timeline_cards.clone(),
+            .collect::<Box<_>>(),
+        timeline_cards: game.timeline_cards.clone().into_boxed_slice(),
     });
     // TODO: Figure out a better way to manage old finished games
     ctx.db.game_done().id().delete(inserted_game.id - 5);
