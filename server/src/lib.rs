@@ -93,6 +93,7 @@ pub struct GameLivePlayer {
     user_id: PlayerId,
     #[index(btree)]
     game_id: GameLiveId,
+    connected: bool,
     role: Role,
     cards: Vec<Card>,
     calls_bomb: bool, // TODO: Add uncalled
@@ -125,7 +126,12 @@ pub fn init(_ctx: &ReducerContext) {
 #[spacetimedb::reducer(client_connected)]
 pub fn identity_connected(ctx: &ReducerContext) {
     let user = ctx.db.user().identity().find(ctx.sender());
-    if user.is_none() {
+    if let Some(user) = user {
+        if let Some(mut game_live_player) = ctx.db.game_live_player().user_id().find(user.id) {
+            game_live_player.connected = true;
+            ctx.db.game_live_player().user_id().update(game_live_player);
+        }
+    } else {
         ctx.db.user().insert(User {
             id: 0,
             identity: ctx.sender(),
@@ -136,13 +142,15 @@ pub fn identity_connected(ctx: &ReducerContext) {
 
 #[spacetimedb::reducer(client_disconnected)]
 pub fn identity_disconnected(ctx: &ReducerContext) {
-    #[expect(clippy::collapsible_if)]
     if let Some(user) = ctx.db.user().identity().find(ctx.sender()) {
-        if let Some(mut game) = ctx.db.game_lobby().user_id().find(user.id) {
-            game.ready = false;
-            ctx.db.game_lobby().user_id().update(game);
+        if let Some(mut game_lobby) = ctx.db.game_lobby().user_id().find(user.id) {
+            game_lobby.ready = false;
+            ctx.db.game_lobby().user_id().update(game_lobby);
         }
-        // TODO: Mark absent for game_live
+        if let Some(mut game_live_player) = ctx.db.game_live_player().user_id().find(user.id) {
+            game_live_player.connected = false;
+            ctx.db.game_live_player().user_id().update(game_live_player);
+        }
     }
 }
 
@@ -284,6 +292,7 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
         .map(|(user_id, player_role)| GameLivePlayer {
             user_id,
             game_id: game.id,
+            connected: true,
             role: player_role,
             cards: Vec::new(),
             calls_bomb: false,
@@ -414,7 +423,11 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
     ctx.db.game_live().id().update(game);
 }
 
-fn distribute_cards(game_players: &mut [GameLivePlayer], cards: &mut Box<[Card]>, rng: &mut impl Rng) {
+fn distribute_cards(
+    game_players: &mut [GameLivePlayer],
+    cards: &mut Box<[Card]>,
+    rng: &mut impl Rng,
+) {
     cards.shuffle(rng);
     let cards_per_player = cards.len() / game_players.len();
     game_players
@@ -462,10 +475,7 @@ fn process_game_finished(ctx: &ReducerContext, game: &GameLive, game_players: &[
             .iter()
             .map(|gp| PlayerSherlock {
                 name: gp.user_id.to_string(), // TODO: Use actual user names instead of IDs
-                is_moriarty: matches!(
-                    gp.role,
-                    Role::Moriarty0 | Role::Moriarty1 | Role::Moriarty2
-                ),
+                is_moriarty: matches!(gp.role, Role::Moriarty0 | Role::Moriarty1 | Role::Moriarty2),
             })
             .collect::<Box<_>>(),
         timeline_users_idx: game

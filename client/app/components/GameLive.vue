@@ -243,6 +243,13 @@ const pickerSelected = ref<number | null>(null)
             <p class="flex items-center gap-2">
               {{ player.userId.toString() }}
               <UButton
+                v-if="! player.connected"
+                :loading="true"
+                size="xs"
+                label="Déconnecté"
+                color="warning"
+              />
+              <UButton
                 v-if="playingUserId === player.userId"
                 :loading="true"
                 size="xs"
