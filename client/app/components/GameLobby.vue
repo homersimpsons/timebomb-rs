@@ -8,7 +8,7 @@ import type { DeepReadonly } from '~/utils'
 type ReadonlyGameDone = DeepReadonly<GameDone>
 
 const props = defineProps<{
-  games: readonly GameLobby[]
+  gameLobby: readonly GameLobby[]
   gameDone: readonly ReadonlyGameDone[]
   me: User
 }>()
@@ -22,9 +22,9 @@ type GameRow = {
 
 const groupedGames = computed(() => {
   const games = new Map<number, GameRow>()
-  for (const game of props.games) {
-    const g = games.getOrInsert(game.gameId, {
-      id: game.gameId,
+  for (const game of props.gameLobby) {
+    const g = games.getOrInsert(game.lobbyId, {
+      id: game.lobbyId,
       users: []
     } as GameRow)
     g.users.push([game.userId, game.ready])

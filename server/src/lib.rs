@@ -64,12 +64,22 @@ pub struct User {
     name: String,
 }
 
-type GameId = u32; // TODO: convert to UUID
-#[spacetimedb::table(accessor = game)]
-pub struct Game {
+#[spacetimedb::table(accessor = game_lobby, public)]
+pub struct GameLobby {
+    #[primary_key]
+    user_id: PlayerId,
+    #[index(btree)]
+    #[auto_inc]
+    lobby_id: u32,
+    ready: bool,
+}
+
+type GameLiveId = u32; // TODO: convert to UUID
+#[spacetimedb::table(accessor = game_live)]
+pub struct GameLive {
     #[primary_key]
     #[auto_inc]
-    id: GameId,
+    id: GameLiveId,
     // TODO? Track lifecycle timestamps
     /// Track which player picked at which turn. Tail is next player to pick.
     timeline_users_id: Vec<PlayerId>,
@@ -77,27 +87,17 @@ pub struct Game {
     timeline_cards: Vec<Card>,
 }
 
-#[spacetimedb::table(accessor = game_lobby, public)]
-pub struct GameLobby {
+#[spacetimedb::table(accessor = game_live_player)]
+pub struct GameLivePlayer {
     #[primary_key]
     user_id: PlayerId,
     #[index(btree)]
-    #[auto_inc]
-    game_id: GameId,
-    ready: bool,
-}
-
-#[spacetimedb::table(accessor = game_live)]
-pub struct GameLive {
-    #[primary_key]
-    user_id: PlayerId,
-    #[index(btree)]
-    game_id: GameId,
-    player_role: Role,
-    player_cards: Vec<Card>,
-    player_call_bomb: bool, // TODO: Add uncalled
-    player_call_defuse: u8, // TODO: Add uncalled
-    player_call_mood: Option<Mood>,
+    game_id: GameLiveId,
+    role: Role,
+    cards: Vec<Card>,
+    calls_bomb: bool, // TODO: Add uncalled
+    calls_defuse: u8, // TODO: Add uncalled
+    calls_mood: Option<Mood>,
 }
 
 #[derive(SpacetimeType)]
@@ -182,7 +182,7 @@ pub fn game_leave(ctx: &ReducerContext) {
 }
 
 #[spacetimedb::reducer]
-pub fn game_join(ctx: &ReducerContext, id: Option<GameId>) -> Result<(), String> {
+pub fn game_join(ctx: &ReducerContext, id: Option<GameLiveId>) -> Result<(), String> {
     let user = ctx
         .db
         .user()
@@ -194,13 +194,13 @@ pub fn game_join(ctx: &ReducerContext, id: Option<GameId>) -> Result<(), String>
         return Err("User is already in a lobby".into());
     }
 
-    let game_live = ctx.db.game_live().user_id().find(user.id);
+    let game_live = ctx.db.game_live_player().user_id().find(user.id);
     if game_live.is_some() {
         return Err("User is already in a live game".into());
     }
 
     if let Some(id) = id {
-        let user_count = ctx.db.game_lobby().game_id().filter(id).count();
+        let user_count = ctx.db.game_lobby().lobby_id().filter(id).count();
         if user_count > GAME_MAX_PLAYER {
             return Err("Lobby is full".into());
         }
@@ -210,13 +210,13 @@ pub fn game_join(ctx: &ReducerContext, id: Option<GameId>) -> Result<(), String>
 
         ctx.db.game_lobby().insert(GameLobby {
             user_id: user.id,
-            game_id: id,
+            lobby_id: id,
             ready: false,
         });
     } else {
         ctx.db.game_lobby().insert(GameLobby {
             user_id: user.id,
-            game_id: 0,
+            lobby_id: 0,
             ready: false,
         });
     }
@@ -245,12 +245,12 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
         ctx.db.game_lobby().user_id().update(game_lobby);
         return;
     }
-    let game_id = game_lobby.game_id;
+    let game_id = game_lobby.lobby_id;
     ctx.db.game_lobby().user_id().update(game_lobby);
     let game_users = ctx
         .db
         .game_lobby()
-        .game_id()
+        .lobby_id()
         .filter(game_id)
         .collect::<Box<_>>();
     let player_count = game_users.len();
@@ -265,7 +265,7 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
         return; // Wait for every one to be ready to start the game
     }
 
-    let mut game = ctx.db.game().insert(Game {
+    let mut game = ctx.db.game_live().insert(GameLive {
         id: 0,
         timeline_users_id: Vec::new(),
         timeline_cards: Vec::new(),
@@ -281,14 +281,14 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
     players_roles.shuffle(&mut ctx.rng());
 
     let mut game_players = zip(user_ids, players_roles)
-        .map(|(user_id, player_role)| GameLive {
+        .map(|(user_id, player_role)| GameLivePlayer {
             user_id,
             game_id: game.id,
-            player_role,
-            player_cards: Vec::new(),
-            player_call_bomb: false,
-            player_call_defuse: 0,
-            player_call_mood: None,
+            role: player_role,
+            cards: Vec::new(),
+            calls_bomb: false,
+            calls_defuse: 0,
+            calls_mood: None,
         })
         .collect::<Box<_>>();
 
@@ -299,17 +299,17 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
         .collect::<Box<_>>();
     distribute_cards(&mut game_players, &mut cards, &mut ctx.rng());
 
-    ctx.db.game_lobby().game_id().delete(game_id);
+    ctx.db.game_lobby().lobby_id().delete(game_id);
     game_players.into_iter().for_each(|row| {
-        ctx.db.game_live().insert(row);
+        ctx.db.game_live_player().insert(row);
     });
     game.timeline_users_id.push(starting_player_id);
-    ctx.db.game().id().update(game);
+    ctx.db.game_live().id().update(game);
 }
 
 #[derive(SpacetimeType)]
 pub struct MyGameLive {
-    player_rows: Box<[GameLive]>,
+    player_rows: Box<[GameLivePlayer]>,
     timeline_users_id: Vec<PlayerId>,
     timeline_cards: Vec<Card>,
 }
@@ -321,16 +321,16 @@ pub fn my_game_live(ctx: &ViewContext) -> Option<MyGameLive> {
         .identity()
         .find(ctx.sender())
         .expect("User not found");
-    let player_game = ctx.db.game_live().user_id().find(user.id)?;
+    let player_game = ctx.db.game_live_player().user_id().find(user.id)?;
     let game_players = ctx
         .db
-        .game_live()
+        .game_live_player()
         .game_id()
         .filter(player_game.game_id)
         .collect::<Box<_>>();
     let game = ctx
         .db
-        .game()
+        .game_live()
         .id()
         .find(player_game.game_id)
         .expect("Game not found");
@@ -353,7 +353,7 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
     }
     let mut game = ctx
         .db
-        .game()
+        .game_live()
         .id()
         .find(game_picker.game_id)
         .expect("Game not found");
@@ -363,7 +363,7 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
 
     let mut game_players = ctx
         .db
-        .game_live()
+        .game_live_player()
         .game_id()
         .filter(game_picker.game_id)
         .collect::<Box<_>>();
@@ -373,7 +373,7 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
         .iter_mut()
         .find(|gp| gp.user_id == pick_player_id)
         .expect("Players are not in the same game");
-    let card = game_picked.player_cards.remove(card_idx); // TODO: graceful error?
+    let card = game_picked.cards.remove(card_idx); // TODO: graceful error?
     game.timeline_users_id.push(game_picked.user_id);
     game.timeline_cards.push(card);
 
@@ -392,7 +392,7 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
             process_game_finished(ctx, &game, &game_players);
             return;
         }
-        game_picked.player_call_defuse = game_picked.player_call_defuse.saturating_sub(1);
+        game_picked.calls_defuse = game_picked.calls_defuse.saturating_sub(1);
     }
 
     if game.timeline_cards.len() >= player_count * GAME_ROUND_MAX {
@@ -403,55 +403,55 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
     if game.timeline_cards.len().is_multiple_of(player_count) {
         let mut cards = game_players
             .iter()
-            .flat_map(|gp| gp.player_cards.clone())
+            .flat_map(|gp| gp.cards.clone())
             .collect::<Box<_>>();
         distribute_cards(&mut game_players, &mut cards, &mut ctx.rng());
     }
 
     for gp in game_players {
-        ctx.db.game_live().user_id().update(gp);
+        ctx.db.game_live_player().user_id().update(gp);
     }
-    ctx.db.game().id().update(game);
+    ctx.db.game_live().id().update(game);
 }
 
-fn distribute_cards(game_players: &mut [GameLive], cards: &mut Box<[Card]>, rng: &mut impl Rng) {
+fn distribute_cards(game_players: &mut [GameLivePlayer], cards: &mut Box<[Card]>, rng: &mut impl Rng) {
     cards.shuffle(rng);
     let cards_per_player = cards.len() / game_players.len();
     game_players
         .iter_mut()
         .zip(cards.chunks_exact(cards_per_player))
         .for_each(|(gp, new_cards)| {
-            gp.player_cards = new_cards.to_vec();
-            gp.player_call_bomb = false;
-            gp.player_call_defuse = 0;
-            gp.player_call_mood = None;
+            gp.cards = new_cards.to_vec();
+            gp.calls_bomb = false;
+            gp.calls_defuse = 0;
+            gp.calls_mood = None;
         });
 }
 
 #[spacetimedb::reducer]
 fn game_call_mood(ctx: &ReducerContext, mood: Option<Mood>) {
     let (_user, mut player_game) = relove_user_game_live(ctx);
-    player_game.player_call_mood = mood;
-    ctx.db.game_live().user_id().update(player_game);
+    player_game.calls_mood = mood;
+    ctx.db.game_live_player().user_id().update(player_game);
 }
 
 #[spacetimedb::reducer]
 fn game_call_defuse(ctx: &ReducerContext, defuse: u8) {
     let (_user, mut player_game) = relove_user_game_live(ctx);
-    player_game.player_call_defuse = defuse;
-    ctx.db.game_live().user_id().update(player_game);
+    player_game.calls_defuse = defuse;
+    ctx.db.game_live_player().user_id().update(player_game);
 }
 
 #[spacetimedb::reducer]
 fn game_call_bomb(ctx: &ReducerContext, bomb: bool) {
     let (_user, mut player_game) = relove_user_game_live(ctx);
-    player_game.player_call_bomb = bomb;
-    ctx.db.game_live().user_id().update(player_game);
+    player_game.calls_bomb = bomb;
+    ctx.db.game_live_player().user_id().update(player_game);
 }
 
-fn process_game_finished(ctx: &ReducerContext, game: &Game, game_players: &[GameLive]) {
-    ctx.db.game_live().game_id().delete(game.id);
-    ctx.db.game().id().delete(game.id);
+fn process_game_finished(ctx: &ReducerContext, game: &GameLive, game_players: &[GameLivePlayer]) {
+    ctx.db.game_live_player().game_id().delete(game.id);
+    ctx.db.game_live().id().delete(game.id);
 
     let mut user_ids = game_players.iter().map(|gp| gp.user_id).collect::<Box<_>>();
     user_ids.sort();
@@ -463,7 +463,7 @@ fn process_game_finished(ctx: &ReducerContext, game: &Game, game_players: &[Game
             .map(|gp| PlayerSherlock {
                 name: gp.user_id.to_string(), // TODO: Use actual user names instead of IDs
                 is_moriarty: matches!(
-                    gp.player_role,
+                    gp.role,
                     Role::Moriarty0 | Role::Moriarty1 | Role::Moriarty2
                 ),
             })
@@ -479,7 +479,7 @@ fn process_game_finished(ctx: &ReducerContext, game: &Game, game_players: &[Game
     ctx.db.game_done().id().delete(inserted_game.id - 5);
 }
 
-fn relove_user_game_live(ctx: &ReducerContext) -> (User, GameLive) {
+fn relove_user_game_live(ctx: &ReducerContext) -> (User, GameLivePlayer) {
     let user = ctx
         .db
         .user()
@@ -488,7 +488,7 @@ fn relove_user_game_live(ctx: &ReducerContext) -> (User, GameLive) {
         .expect("User not found");
     let player_game = ctx
         .db
-        .game_live()
+        .game_live_player()
         .user_id()
         .find(user.id)
         .expect("User not in live game");

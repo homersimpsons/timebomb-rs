@@ -23,8 +23,8 @@ const myRow = computed(() => props.game.playerRows.find(row => row.userId === pr
 const otherRows = computed(() => props.game.playerRows.filter(row => row.userId !== props.me.id))
 const playingUserId = computed(() => props.game.timelineUsersId.at(-1))
 const myTurn = computed(() => playingUserId.value === props.me.id)
-const bombCount = computed(() => props.game.playerRows.filter(p => p.playerCallBomb).length)
-const defuseCount = computed(() => props.game.playerRows.map(p => p.playerCallDefuse ?? 0).reduce((acc, val) => acc + val, 0))
+const bombCount = computed(() => props.game.playerRows.filter(p => p.callsBomb).length)
+const defuseCount = computed(() => props.game.playerRows.map(p => p.callsDefuse ?? 0).reduce((acc, val) => acc + val, 0))
 const defuseFoundCount = computed(() => props.game.timelineCards.filter(card => card.tag === Card.Defuse.tag).length)
 const defuseRemainingCount = computed(() => props.game.playerRows.length - defuseFoundCount.value)
 
@@ -32,7 +32,7 @@ const showSensitiveInfo = ref(false)
 
 // eslint-disable-next-line vue/return-in-computed-property -- already covered by TypeScript
 const myRoleImg = computed((): string => {
-  switch (myRow.value.playerRole.tag) {
+  switch (myRow.value.role.tag) {
     case Role.Sherlock0.tag: return sherlock0
     case Role.Moriarty0.tag: return moriarty0
     case Role.Sherlock1.tag: return sherlock1
@@ -44,7 +44,7 @@ const myRoleImg = computed((): string => {
   }
 })
 // @ts-expect-error TS2345 TypeScript incorrectly reports an error for the includes check
-const myRoleAlt = computed(() => [Role.Moriarty0.tag, Role.Moriarty1.tag, Role.Moriarty2.tag].includes(myRow.value.playerRole.tag) ? 'Moriarty' : 'Sherlock')
+const myRoleAlt = computed(() => [Role.Moriarty0.tag, Role.Moriarty1.tag, Role.Moriarty2.tag].includes(myRow.value.role.tag) ? 'Moriarty' : 'Sherlock')
 
 const moodMap = {
   '😇': Mood.Angel,
@@ -60,7 +60,7 @@ type MoodMap = typeof moodMap
 type MoodMapKeys = keyof MoodMap
 const getMoodKeyByValue = (value: Mood): MoodMapKeys => Object.entries(moodMap).find(([_key, val]) => val.tag === value.tag)![0] as MoodMapKeys
 const moods = Object.keys(moodMap) as MoodMapKeys[]
-const myMood = computed(() => myRow.value.playerCallMood ? getMoodKeyByValue(myRow.value.playerCallMood) : undefined)
+const myMood = computed(() => myRow.value.callsMood ? getMoodKeyByValue(myRow.value.callsMood) : undefined)
 const gameCallMood = useReducer(reducers.gameCallMood)
 const gameCallMoodHandler = (mood: MoodMapKeys) => gameCallMood({ mood: moodMap[mood] })
 // TODO: Add unset mood
@@ -150,7 +150,7 @@ const pickerSelected = ref<number | null>(null)
               name="bomb"
             >
               <USwitch
-                :model-value="myRow.playerCallBomb"
+                :model-value="myRow.callsBomb"
                 @update:model-value="gameCallBombHandler"
               />
             </UFormField>
@@ -160,7 +160,7 @@ const pickerSelected = ref<number | null>(null)
             >
               <UInputNumber
                 size="xs"
-                :model-value="myRow.playerCallDefuse"
+                :model-value="myRow.callsDefuse"
                 @update:model-value="gameCallDefuseHandler"
               />
             </UFormField>
@@ -184,7 +184,7 @@ const pickerSelected = ref<number | null>(null)
       <div class="flex gap-2">
         <!-- TODO: Fix design when <5 cards -->
         <div
-          v-for="card in myRow.playerCards"
+          v-for="card in myRow.cards"
           :key="card"
         >
           <img
@@ -266,7 +266,7 @@ const pickerSelected = ref<number | null>(null)
                     <!-- TODO: Fix design when <5 cards -->
                     <div class="flex gap-4">
                       <div
-                        v-for="(_card, cardIdx) in player.playerCards"
+                        v-for="(_card, cardIdx) in player.cards"
                         :key="cardIdx"
                         class="m-2"
                       >
@@ -285,24 +285,24 @@ const pickerSelected = ref<number | null>(null)
           <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
             <div class="flex items-center gap-2">
               <UIcon name="i-lucide-playing-cards-fan" />
-              <span>{{ player.playerCards.length }} cartes</span>
+              <span>{{ player.cards.length }} cartes</span>
             </div>
 
             <div class="flex items-center gap-2">
               <UIcon name="i-lucide-bomb" />
               <span>
-                {{ player.playerCallBomb === true ? 'Bombe' : 'Pas de bombe' }}
+                {{ player.callsBomb === true ? 'Bombe' : 'Pas de bombe' }}
               </span>
             </div>
 
             <div class="flex items-center gap-2">
               <UIcon name="i-lucide-shield-plus" />
-              <span>{{ player.playerCallDefuse ?? 0 }} désamorçage</span>
+              <span>{{ player.callsDefuse ?? 0 }} désamorçage</span>
             </div>
 
             <div class="flex items-center gap-2">
               <span>
-                {{ player.playerCallMood ? getMoodKeyByValue(player.playerCallMood) : '—' }}
+                {{ player.callsMood ? getMoodKeyByValue(player.callsMood) : '—' }}
               </span>
               <span>humeur</span>
             </div>

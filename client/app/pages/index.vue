@@ -21,7 +21,7 @@ const [gameDone] = useTable(tables.gameDone)
     <!-- <GameLive v-if="true" /> -->
     <GameLobby
       v-else
-      :games="gameLobby"
+      :game-lobby="gameLobby"
       :game-done="gameDone"
       :me="me"
     />
