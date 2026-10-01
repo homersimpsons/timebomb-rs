@@ -82,6 +82,7 @@ pub struct GameLobby {
     #[primary_key]
     user_id: PlayerId,
     #[index(btree)]
+    #[auto_inc]
     game_id: GameId,
     ready: bool,
 }
@@ -163,33 +164,6 @@ fn user_me(ctx: &ViewContext) -> Option<User> {
 }
 
 #[spacetimedb::reducer]
-pub fn game_create(ctx: &ReducerContext) -> Result<(), String> {
-    let creator = ctx
-        .db
-        .user()
-        .identity()
-        .find(ctx.sender())
-        .expect("User not found");
-
-    let game = ctx.db.game_lobby().user_id().find(creator.id);
-    if game.is_some() {
-        return Err("User is already in a game".into());
-    }
-    let game = ctx.db.game().insert(Game {
-        id: 0,
-        timeline_users_id: Vec::new(),
-        timeline_cards: Vec::new(),
-    });
-    ctx.db.game_lobby().insert(GameLobby {
-        user_id: creator.id,
-        game_id: game.id,
-        ready: false,
-    });
-
-    Ok(())
-}
-
-#[spacetimedb::reducer]
 pub fn game_leave(ctx: &ReducerContext) {
     let user = ctx
         .db
@@ -208,7 +182,7 @@ pub fn game_leave(ctx: &ReducerContext) {
 }
 
 #[spacetimedb::reducer]
-pub fn game_join(ctx: &ReducerContext, id: GameId) -> Result<(), String> {
+pub fn game_join(ctx: &ReducerContext, id: Option<GameId>) -> Result<(), String> {
     let user = ctx
         .db
         .user()
@@ -225,19 +199,27 @@ pub fn game_join(ctx: &ReducerContext, id: GameId) -> Result<(), String> {
         return Err("User is already in a live game".into());
     }
 
-    let user_count = ctx.db.game_lobby().game_id().filter(id).count();
-    if user_count > GAME_MAX_PLAYER {
-        return Err("Lobby is full".into());
-    }
-    if user_count == 0 {
-        return Err("Lobby is empty".into());
-    }
+    if let Some(id) = id {
+        let user_count = ctx.db.game_lobby().game_id().filter(id).count();
+        if user_count > GAME_MAX_PLAYER {
+            return Err("Lobby is full".into());
+        }
+        if user_count == 0 {
+            return Err("Lobby is empty".into());
+        }
 
-    ctx.db.game_lobby().insert(GameLobby {
-        user_id: user.id,
-        game_id: id,
-        ready: false,
-    });
+        ctx.db.game_lobby().insert(GameLobby {
+            user_id: user.id,
+            game_id: id,
+            ready: false,
+        });
+    } else {
+        ctx.db.game_lobby().insert(GameLobby {
+            user_id: user.id,
+            game_id: 0,
+            ready: false,
+        });
+    }
     Ok(())
 }
 
@@ -283,7 +265,11 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
         return; // Wait for every one to be ready to start the game
     }
 
-    let mut game = ctx.db.game().id().find(game_id).expect("Game not found");
+    let mut game = ctx.db.game().insert(Game {
+        id: 0,
+        timeline_users_id: Vec::new(),
+        timeline_cards: Vec::new(),
+    });
 
     let user_ids = game_users.iter().map(|g| g.user_id).collect::<Box<_>>();
 

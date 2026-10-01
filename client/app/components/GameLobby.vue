@@ -43,10 +43,8 @@ const columns: TableColumn<GameRow>[] = [
   { accessorKey: 'actions', header: 'Actions' }
 ]
 
-const gameCreate = useReducer(reducers.gameCreate)
-const gameCreateHandler = () => gameCreate().catch(err => toast.add({ title: 'Erreur', description: err.message }))
 const gameJoin = useReducer(reducers.gameJoin)
-const gameJoinHandler = (id: number) => gameJoin({ id }).catch(err => toast.add({ title: 'Erreur', description: err.message }))
+const gameJoinHandler = (id?: number) => gameJoin({ id }).catch(err => toast.add({ title: 'Erreur', description: err.message }))
 const gameLeaveReducer = useReducer(reducers.gameLeave)
 const gameLeaveHandler = () => gameLeaveReducer()
 const gameReadyReducer = useReducer(reducers.gameReady)
@@ -71,12 +69,12 @@ function isMoriartyWin(game: ReadonlyGameDone) {
           <h2>Mon lobby</h2>
           <div class="flex items-center gap-4">
             <USwitch
-              label="Ready"
+              label="Prêt"
               :model-value="isReady"
               @update:model-value="gameReadyHandler"
             />
             <UButton
-              label="Leave"
+              label="Quitter"
               icon="i-lucide-log-out"
               @click="gameLeaveHandler()"
             />
@@ -106,9 +104,9 @@ function isMoriartyWin(game: ReadonlyGameDone) {
           <h2>Autres lobbies</h2>
           <UButton
             v-if="!myGame"
-            label="Create"
+            label="Créer"
             icon="i-lucide-plus"
-            @click="gameCreateHandler"
+            @click="gameJoinHandler(undefined)"
           />
         </div>
       </template>
@@ -126,7 +124,7 @@ function isMoriartyWin(game: ReadonlyGameDone) {
             v-if="!myGame"
             @click="gameJoinHandler(row.original.id)"
           >
-            Join
+            Rejoindre
           </UButton>
         </template>
       </UTable>
