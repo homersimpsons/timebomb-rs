@@ -129,6 +129,23 @@ const connectionBuilder = import.meta.client
               color="neutral"
               variant="ghost"
             />
+            <UDrawer
+              direction="bottom"
+              title="Partager le lien"
+              :handle="false"
+              :close="true"
+            >
+              <UIcon
+                name="i-lucide-qr-code"
+              />
+              <template #body>
+                <img
+                  class="mx-auto"
+                  src="~/assets/img/qrcode.svg"
+                  alt="QR Code"
+                >
+              </template>
+            </UDrawer>
           </template>
         </UFooter>
 
