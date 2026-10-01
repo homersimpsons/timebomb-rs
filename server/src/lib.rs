@@ -6,6 +6,9 @@ use spacetimedb::{
     rand::{Rng, seq::SliceRandom},
 };
 
+mod user_names;
+use crate::user_names::USER_NAMES;
+
 const GAME_MIN_PLAYER: usize = 2; // (inclusive)
 const GAME_MAX_PLAYER: usize = 8; // (inclusive)
 const GAME_CARD_START: usize = 5;
@@ -68,6 +71,7 @@ pub struct User {
 pub struct GameLobby {
     #[primary_key]
     user_id: PlayerId,
+    user_name: String,
     #[index(btree)]
     #[auto_inc]
     lobby_id: u32,
@@ -91,6 +95,7 @@ pub struct GameLive {
 pub struct GameLivePlayer {
     #[primary_key]
     user_id: PlayerId,
+    user_name: String,
     #[index(btree)]
     game_id: GameLiveId,
     connected: bool,
@@ -132,10 +137,14 @@ pub fn identity_connected(ctx: &ReducerContext) {
             ctx.db.game_live_player().user_id().update(game_live_player);
         }
     } else {
+        let random_name = USER_NAMES
+            .choose(&mut ctx.rng())
+            .expect("No user names available")
+            .to_string();
         ctx.db.user().insert(User {
             id: 0,
             identity: ctx.sender(),
-            name: "me".to_string(), // TODO: random name
+            name: random_name,
         });
     }
 }
@@ -155,15 +164,34 @@ pub fn identity_disconnected(ctx: &ReducerContext) {
 }
 
 #[spacetimedb::reducer]
-pub fn user_update(ctx: &ReducerContext, name: String) {
+pub fn user_update(ctx: &ReducerContext, name: String) -> Result<(), String> {
+    if name.trim() != name {
+        return Err("Le pseudo ne doit pas contenir d'espaces au début ou à la fin".into());
+    }
+    if name.is_empty() {
+        return Err("Le pseudo ne doit pas être vide".into());
+    }
+    if name.chars().count() > 15 {
+        return Err("Le pseudo ne doit pas dépasser 15 caractères".into());
+    }
+
     let mut user = ctx
         .db
         .user()
         .identity()
         .find(ctx.sender())
         .expect("User not found");
-    user.name = name;
+    if let Some(mut game_lobby) = ctx.db.game_lobby().user_id().find(user.id) {
+        game_lobby.user_name = name.clone();
+        ctx.db.game_lobby().user_id().update(game_lobby);
+    }
+    if let Some(mut game_live_player) = ctx.db.game_live_player().user_id().find(user.id) {
+        game_live_player.user_name = name.clone();
+        ctx.db.game_live_player().user_id().update(game_live_player);
+    }
+    user.name = name.clone();
     ctx.db.user().id().update(user);
+    Ok(())
 }
 
 #[spacetimedb::view(accessor = me, public)]
@@ -218,12 +246,14 @@ pub fn game_join(ctx: &ReducerContext, id: Option<GameLiveId>) -> Result<(), Str
 
         ctx.db.game_lobby().insert(GameLobby {
             user_id: user.id,
+            user_name: user.name,
             lobby_id: id,
             ready: false,
         });
     } else {
         ctx.db.game_lobby().insert(GameLobby {
             user_id: user.id,
+            user_name: user.name,
             lobby_id: 0,
             ready: false,
         });
@@ -280,17 +310,18 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
     });
 
     let user_ids = game_users.iter().map(|g| g.user_id).collect::<Box<_>>();
-
-    let starting_player_idx = ctx.rng().gen_range(0..user_ids.len());
-    let starting_player_id = user_ids[starting_player_idx];
+    let starting_player_id = *user_ids
+        .choose(&mut ctx.rng())
+        .expect("user_ids is not empty");
 
     // TODO: Follow rules regarding roles assignations
     let mut players_roles = ROLES.iter().take(player_count).cloned().collect::<Box<_>>();
     players_roles.shuffle(&mut ctx.rng());
 
-    let mut game_players = zip(user_ids, players_roles)
-        .map(|(user_id, player_role)| GameLivePlayer {
-            user_id,
+    let mut game_players = zip(game_users, players_roles)
+        .map(|(user, player_role)| GameLivePlayer {
+            user_id: user.user_id,
+            user_name: user.user_name,
             game_id: game.id,
             connected: true,
             role: player_role,
@@ -474,7 +505,7 @@ fn process_game_finished(ctx: &ReducerContext, game: &GameLive, game_players: &[
         players: game_players
             .iter()
             .map(|gp| PlayerSherlock {
-                name: gp.user_id.to_string(), // TODO: Use actual user names instead of IDs
+                name: gp.user_name.to_string(),
                 is_moriarty: matches!(gp.role, Role::Moriarty0 | Role::Moriarty1 | Role::Moriarty2),
             })
             .collect::<Box<_>>(),

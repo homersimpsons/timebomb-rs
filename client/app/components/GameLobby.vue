@@ -17,7 +17,7 @@ const toast = useToast()
 
 type GameRow = {
   id: number
-  users: [number, boolean][]
+  users: GameLobby[]
 }
 
 const groupedGames = computed(() => {
@@ -27,19 +27,19 @@ const groupedGames = computed(() => {
       id: game.lobbyId,
       users: []
     } as GameRow)
-    g.users.push([game.userId, game.ready])
+    g.users.push(game)
   }
 
   return Array.from(games.values())
 })
 
-const myGameIdx = computed(() => groupedGames.value.findIndex(g => g.users.some(u => u[0] === props.me.id)))
+const myGameIdx = computed(() => groupedGames.value.findIndex(g => g.users.some(u => u.userId === props.me.id)))
 const myGame = computed(() => myGameIdx.value !== -1 ? groupedGames.value[myGameIdx.value] : null)
 const otherGames = computed<GameRow[]>(() => myGameIdx.value !== -1 ? groupedGames.value.toSpliced(myGameIdx.value, 1) : groupedGames.value)
-const isReady = computed(() => myGame.value?.users.some(u => u[0] === props.me.id && u[1]) ?? false)
+const isReady = computed(() => myGame.value?.users.some(u => u.userId === props.me.id && u.ready) ?? false)
 
 const columns: TableColumn<GameRow>[] = [
-  { accessorKey: 'users', header: 'Players' },
+  { accessorKey: 'users', header: 'Joueurs' },
   { accessorKey: 'actions', header: 'Actions' }
 ]
 
@@ -84,13 +84,13 @@ function isMoriartyWin(game: ReadonlyGameDone) {
 
       <div class="flex gap-2 flex-wrap">
         <template
-          v-for="([id, ready], index) in myGame.users"
-          :key="index"
+          v-for="user in myGame.users"
+          :key="user.userId"
         >
           <UBadge
-            :icon="ready ? 'i-lucide-badge-check' : 'i-lucide-badge-alert'"
-            :label="id"
-            :color="ready ? 'success' : 'warning'"
+            :icon="user.ready ? 'i-lucide-badge-check' : 'i-lucide-badge-alert'"
+            :label="user.userName"
+            :color="user.ready ? 'success' : 'warning'"
             variant="soft"
           />
         </template>
@@ -116,8 +116,7 @@ function isMoriartyWin(game: ReadonlyGameDone) {
         :data="otherGames"
       >
         <template #users-cell="{ row }">
-          <!-- TODO: replace userIds with actual user names -->
-          {{ row.original.users.map(u => u[0]).join(', ') }}
+          {{ row.original.users.map(u => u.userName).join(', ') }}
         </template>
         <template #actions-cell="{ row }">
           <UButton

@@ -73,9 +73,10 @@ const gameCallBombHandler = (bomb: boolean) => gameCallBomb({ bomb })
 
 const timeline = computed<TimelineItem[]>(() => {
   const timelineItems: TimelineItem[] = []
+  const userIdToNameMap = Object.fromEntries(props.game.playerRows.map(p => [p.userId, p.userName]))
   for (const [idx, card] of props.game.timelineCards.entries()) {
-    const picker = props.game.timelineUsersId[idx]
-    const picked = props.game.timelineUsersId[idx + 1]
+    const picker = userIdToNameMap[props.game.timelineUsersId[idx]!]
+    const picked = userIdToNameMap[props.game.timelineUsersId[idx + 1]!]
     const cardLabel = {
       [Card.Secure.tag]: 'un câble sécurisé',
       [Card.Defuse.tag]: 'un câble de désamorçage',
@@ -241,7 +242,7 @@ const pickerSelected = ref<number | null>(null)
             #title
           >
             <p class="flex items-center gap-2">
-              {{ player.userId.toString() }}
+              {{ player.userName }}
               <UButton
                 v-if="! player.connected"
                 :loading="true"

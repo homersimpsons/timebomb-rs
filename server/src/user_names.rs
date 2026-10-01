@@ -1,0 +1,18 @@
+pub(crate) const USER_NAMES: &[&str] = &[
+    "Watson",
+    "Mycroft",
+    "PinceCoupante",
+    "BlueWire",
+    "Hudson",
+    "BigBen💥",
+    "FilRouge",
+    "Boom",
+    "L'Horloger",
+    "MaîtreChanteur",
+    "PerfectBluff",
+    "SureLock",
+    "TicTac",
+    "Déducteur",
+    "CâbleJaune",
+    "Elémentaire",
+];
