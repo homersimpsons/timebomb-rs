@@ -13,6 +13,10 @@ import sherlock4 from '~/assets/img/sherlock_4.png'
 import moriarty0 from '~/assets/img/moriarty_0.png'
 import moriarty1 from '~/assets/img/moriarty_1.png'
 import moriarty2 from '~/assets/img/moriarty_2.png'
+import backImg from '~/assets/img/back.png'
+import secureImg from '~/assets/img/secure_cable.png'
+import defuseImg from '~/assets/img/defusing_cable.png'
+import bombImg from '~/assets/img/bomb.png'
 
 const props = defineProps<{
   game: DeepReadonly<MyGameLive>
@@ -45,6 +49,13 @@ const myRoleImg = computed((): string => {
 })
 // @ts-expect-error TS2345 TypeScript incorrectly reports an error for the includes check
 const myRoleAlt = computed(() => [Role.Moriarty0.tag, Role.Moriarty1.tag, Role.Moriarty2.tag].includes(myRow.value.role.tag) ? 'Moriarty' : 'Sherlock')
+
+const cardImages = {
+  [Card.Secure.tag]: { src: secureImg, alt: 'Secure' },
+  [Card.Defuse.tag]: { src: defuseImg, alt: 'Defuse' },
+  [Card.Bomb.tag]: { src: bombImg, alt: 'Bomb' }
+} as Record<string, { src: string, alt: string }>
+const myCards = computed(() => myRow.value.cards.map(card => cardImages[card.tag]!))
 
 const moodMap = {
   '😇': Mood.Angel,
@@ -110,12 +121,123 @@ const pickerSelected = ref<number | null>(null)
 </script>
 
 <template>
-  <UContainer class="pt-2">
-    <UCard class="mb-2">
+  <UContainer class="pt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+    <UCard>
       <template #header>
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <h2>Mes informations</h2>
+            <h2>Mes cartes</h2>
+            <!-- TODO: Cartes modifiées -->
+          </div>
+          <UFormField
+            :label="showSensitiveInfo ? 'Masquer' : 'Afficher'"
+            name="showSensitiveInfo"
+            orientation="horizontal"
+            class="flex items-center"
+          >
+            <USwitch
+              v-model="showSensitiveInfo"
+              checked-icon="i-lucide-eye"
+              unchecked-icon="i-lucide-eye-off"
+            />
+          </UFormField>
+        </div>
+      </template>
+
+      <div class="flex items-center gap-4">
+        <figure class="w-1/3 shrink-0 text-center">
+          <img
+            v-show="!showSensitiveInfo"
+            class="w-full"
+            :src="backImg"
+            alt="Hidden"
+          >
+          <img
+            v-show="showSensitiveInfo"
+            class="w-full"
+            :src="myRoleImg"
+            :alt="myRoleAlt"
+          >
+          <figcaption
+            class="text-sm"
+            :class="{ 'blur-sm': !showSensitiveInfo }"
+          >
+            {{ showSensitiveInfo ? myRoleAlt : 'Hidden' }}
+          </figcaption>
+        </figure>
+        <div class="w-2/3 flex justify-center flex-wrap">
+          <figure
+            v-for="(card, cardIdx) in myCards"
+            :key="cardIdx"
+            class="text-center w-1/3 p-2"
+          >
+            <img
+              v-show="!showSensitiveInfo"
+              :src="backImg"
+              alt="Hidden"
+            >
+            <img
+              v-show="showSensitiveInfo"
+              :src="card.src"
+              :alt="card.alt"
+            >
+            <figcaption
+              class="text-sm"
+              :class="{ 'blur-sm': !showSensitiveInfo }"
+            >
+              {{ showSensitiveInfo ? card.alt : 'Hidden' }}
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+    </UCard>
+    <UCard>
+      <template #header>
+        <h2>Mes annonces</h2>
+      </template>
+      <div class="space-y-4">
+        <UFormField
+          label="Avez-vous la bombe ?"
+          name="bomb"
+          orientation="horizontal"
+        >
+          <USwitch
+            :model-value="myRow.callsBomb"
+            @update:model-value="gameCallBombHandler"
+          />
+        </UFormField>
+        <UFormField
+          label="Combien avez-vous de désamorçage ?"
+          name="defuse"
+          orientation="horizontal"
+        >
+          <UInputNumber
+            size="xs"
+            :model-value="myRow.callsDefuse"
+            @update:model-value="gameCallDefuseHandler"
+          />
+        </UFormField>
+        <UFormField
+          label="Quelle est votre humeur ?"
+          name="mood"
+        >
+          <URadioGroup
+            :model-value="myMood"
+            :items="moods"
+            orientation="horizontal"
+            variant="card"
+            indicator="hidden"
+            size="xs"
+            @update:model-value="gameCallMoodHandler"
+          />
+        </UFormField>
+      </div>
+    </UCard>
+    <UCard class="md:col-span-2">
+      <template #header>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <h2>Partie</h2>
             <UButton
               v-show="myTurn"
               label="À vous de jouer"
@@ -123,101 +245,6 @@ const pickerSelected = ref<number | null>(null)
               size="xs"
             />
           </div>
-          <USwitch
-            v-model="showSensitiveInfo"
-            checked-icon="i-lucide-eye"
-            unchecked-icon="i-lucide-eye-off"
-          />
-        </div>
-      </template>
-
-      <div class="flex items-center gap-4 mb-2">
-        <div>
-          <img
-            v-show="!showSensitiveInfo"
-            src="~/assets/img/back.png"
-            alt="Hidden"
-          >
-          <img
-            v-show="showSensitiveInfo"
-            :src="myRoleImg"
-            :alt="myRoleAlt"
-          >
-        </div>
-        <div>
-          <div class="space-y-4">
-            <UFormField
-              label="Avez-vous la bombe ?"
-              name="bomb"
-            >
-              <USwitch
-                :model-value="myRow.callsBomb"
-                @update:model-value="gameCallBombHandler"
-              />
-            </UFormField>
-            <UFormField
-              label="Combien avez-vous de désamorçage ?"
-              name="defuse"
-            >
-              <UInputNumber
-                size="xs"
-                :model-value="myRow.callsDefuse"
-                @update:model-value="gameCallDefuseHandler"
-              />
-            </UFormField>
-            <UFormField
-              label="Quelle est votre humeur ?"
-              name="mood"
-            >
-              <URadioGroup
-                :model-value="myMood"
-                :items="moods"
-                orientation="horizontal"
-                variant="card"
-                indicator="hidden"
-                size="xs"
-                @update:model-value="gameCallMoodHandler"
-              />
-            </UFormField>
-          </div>
-        </div>
-      </div>
-      <div class="flex gap-2">
-        <!-- TODO: Fix design when <5 cards -->
-        <div
-          v-for="card in myRow.cards"
-          :key="card"
-        >
-          <img
-            v-show="!showSensitiveInfo"
-            src="~/assets/img/back.png"
-            alt="Hidden"
-          >
-          <img
-            v-show="showSensitiveInfo"
-            v-if="card.tag === Card.Secure.tag"
-            src="~/assets/img/secure_cable.png"
-            alt="Secure"
-          >
-          <img
-            v-show="showSensitiveInfo"
-            v-else-if="card.tag === Card.Defuse.tag"
-            src="~/assets/img/defusing_cable.png"
-            alt="Defuse"
-          >
-          <img
-            v-show="showSensitiveInfo"
-            v-else-if="card.tag === Card.Bomb.tag"
-            src="~/assets/img/bomb.png"
-            alt="Bomb"
-          >
-        </div>
-      </div>
-    </UCard>
-    <UCard class="mb-2">
-      <template #header>
-        <div class="flex justify-between items-center">
-          <h2>Partie</h2>
           <div class="flex items-center gap-4">
             <UBadge
               icon="i-lucide-bomb"
@@ -238,13 +265,11 @@ const pickerSelected = ref<number | null>(null)
           :key="player.userId"
           @click="pickerSelected = player.userId"
         >
-          <template
-            #title
-          >
+          <template #title>
             <p class="flex items-center gap-2">
               {{ player.userName }}
               <UButton
-                v-if="! player.connected"
+                v-if="!player.connected"
                 :loading="true"
                 size="xs"
                 label="Déconnecté"
@@ -271,7 +296,6 @@ const pickerSelected = ref<number | null>(null)
                 />
                 <template #body>
                   <UContainer>
-                    <!-- TODO: Fix design when <5 cards -->
                     <div class="flex gap-4">
                       <div
                         v-for="(_card, cardIdx) in player.cards"
@@ -318,7 +342,7 @@ const pickerSelected = ref<number | null>(null)
         </UPageCard>
       </UPageGrid>
     </UCard>
-    <UCard class="mb-2">
+    <UCard class="md:col-span-2">
       <template #header>
         <h2>Événements</h2>
       </template>
