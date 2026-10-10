@@ -103,7 +103,7 @@ const timeline = computed<TimelineItem[]>(() => {
     })
   }
 
-  const playing = props.game.timelineUsersId.at(-1)
+  const playing = userIdToNameMap[props.game.timelineUsersId.at(-1)!]
   timelineItems.push({
     description: `${playing} choisi une carte`,
     icon: 'i-lucide-shield-question-mark' // TODO? loading icon
