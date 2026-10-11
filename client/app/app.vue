@@ -82,7 +82,7 @@ const connectionBuilder = import.meta.client
                 class="size-5"
               /> Non connecté
             </template>
-            <UserName /> <!-- TODO: move to center -->
+            <UserName class="ms-2" /> <!-- TODO: move to center -->
           </template>
 
           <template #right>

@@ -100,10 +100,31 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      # TODO
-      # - name: "SpacetimeDB: publish"
-      #   run: .spacetimedb/spacetime publish
-      # Deployment job
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: "SpacetimeDB: install cache"
+        id: cache-spacetimedb
+        uses: actions/cache@v6
+        with:
+          path: .spacetimedb
+          key: ${{ runner.os }}-spacetimedb
+
+      - name: "SpacetimeDB: install"
+        if: steps.cache-spacetimedb.outputs.cache-hit != 'true'
+        run: curl -sSf https://install.spacetimedb.com | sh -s -- --yes --root-dir .spacetimedb
+
+      - name: "SpacetimeDB: login"
+        run: .spacetimedb/bin/current/spacetimedb-cli login --token "${{ secrets.SPACETIMEDB_TOKEN }}"
+
+      - name: "Server: cache cargo"
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./server
+
+      - name: "SpacetimeDB: publish"
+        run: .spacetimedb/bin/current/spacetimedb-cli publish --server "${{ vars.SPACETIMEDB_HOST }}" --delete-data=on-conflict --break-clients --yes=remote "${{ vars.SPACETIMEDB_DB_NAME }}"
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
