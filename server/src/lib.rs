@@ -1,8 +1,11 @@
 use core::panic;
-use std::iter::{once, repeat, repeat_n, zip};
+use std::{
+    iter::{once, repeat, repeat_n, zip},
+    time::Duration,
+};
 
 use spacetimedb::{
-    Identity, ReducerContext, SpacetimeType, Table, Timestamp, ViewContext,
+    Identity, ReducerContext, ScheduleAt, SpacetimeType, Table, Timestamp, ViewContext,
     rand::{Rng, seq::SliceRandom},
 };
 
@@ -13,6 +16,7 @@ const GAME_MIN_PLAYER: usize = 2; // (inclusive)
 const GAME_MAX_PLAYER: usize = 8; // (inclusive)
 const GAME_CARD_START: usize = 5;
 const GAME_ROUND_MAX: usize = GAME_CARD_START - 1;
+const GAME_LIVE_BOT_SCHEDULE_DELAY: Duration = Duration::from_secs(10);
 
 #[derive(Copy, Clone, PartialEq, SpacetimeType)]
 enum Role {
@@ -67,6 +71,16 @@ pub struct User {
     name: String,
 }
 
+#[spacetimedb::table(accessor = user_cleaner_schedule, scheduled(user_cleaner))]
+pub struct UserCleanerSchedule {
+    #[primary_key]
+    #[auto_inc]
+    scheduled_id: u64,
+    scheduled_at: ScheduleAt,
+    #[unique]
+    player_id: PlayerId,
+}
+
 #[spacetimedb::table(accessor = game_lobby, public)]
 pub struct GameLobby {
     #[primary_key]
@@ -76,6 +90,16 @@ pub struct GameLobby {
     #[auto_inc]
     lobby_id: u32,
     ready: bool,
+}
+
+#[spacetimedb::table(accessor = game_lobby_cleaner_schedule, scheduled(game_lobby_cleaner))]
+pub struct GameLobbyCleanerSchedule {
+    #[primary_key]
+    #[auto_inc]
+    scheduled_id: u64,
+    scheduled_at: ScheduleAt,
+    #[unique]
+    lobby_id: u32,
 }
 
 type GameLiveId = u32; // TODO: convert to UUID
@@ -106,21 +130,43 @@ pub struct GameLivePlayer {
     calls_mood: Option<Mood>,
 }
 
+#[spacetimedb::table(accessor = game_live_bot_schedule, scheduled(game_live_bot))]
+pub struct GameLiveBotSchedule {
+    #[primary_key]
+    #[auto_inc]
+    scheduled_id: u64,
+    scheduled_at: ScheduleAt,
+    #[unique]
+    game_id: GameLiveId,
+}
+
 #[derive(SpacetimeType)]
 struct PlayerSherlock {
     name: String,
     is_moriarty: bool,
 }
+
+type GameDoneId = u32; // TODO: convert to UUID
 #[spacetimedb::table(accessor = game_done, public)]
 pub struct GameDone {
     #[primary_key]
     #[auto_inc]
-    id: u32, // TODO: convert to UUID
+    id: GameDoneId,
     #[index(btree)]
     finished_at: Timestamp,
     players: Box<[PlayerSherlock]>,
     timeline_users_idx: Box<[u8]>,
     timeline_cards: Box<[Card]>,
+}
+
+#[spacetimedb::table(accessor = game_done_cleaner_schedule, scheduled(game_done_cleaner))]
+pub struct GameDoneCleanerSchedule {
+    #[primary_key]
+    #[auto_inc]
+    scheduled_id: u64,
+    scheduled_at: ScheduleAt,
+    #[unique]
+    game_id: GameDoneId,
 }
 
 #[spacetimedb::reducer(init)]
@@ -136,6 +182,7 @@ pub fn identity_connected(ctx: &ReducerContext) {
             game_live_player.connected = true;
             ctx.db.game_live_player().user_id().update(game_live_player);
         }
+        ctx.db.user_cleaner_schedule().player_id().delete(user.id);
     } else {
         let random_name = USER_NAMES
             .choose(&mut ctx.rng())
@@ -160,6 +207,11 @@ pub fn identity_disconnected(ctx: &ReducerContext) {
             game_live_player.connected = false;
             ctx.db.game_live_player().user_id().update(game_live_player);
         }
+        ctx.db.user_cleaner_schedule().insert(UserCleanerSchedule {
+            scheduled_id: 0,
+            scheduled_at: ScheduleAt::Time(ctx.timestamp + Duration::from_hours(24 * 7)),
+            player_id: user.id,
+        });
     }
 }
 
@@ -197,6 +249,11 @@ pub fn user_update(ctx: &ReducerContext, name: String) -> Result<(), String> {
 #[spacetimedb::view(accessor = me, public)]
 fn user_me(ctx: &ViewContext) -> Option<User> {
     ctx.db.user().identity().find(ctx.sender())
+}
+
+#[spacetimedb::reducer]
+fn user_cleaner(ctx: &ReducerContext, cleaner: UserCleanerSchedule) {
+    ctx.db.user().id().delete(cleaner.player_id);
 }
 
 #[spacetimedb::reducer]
@@ -251,12 +308,19 @@ pub fn game_join(ctx: &ReducerContext, id: Option<GameLiveId>) -> Result<(), Str
             ready: false,
         });
     } else {
-        ctx.db.game_lobby().insert(GameLobby {
+        let game_lobby = ctx.db.game_lobby().insert(GameLobby {
             user_id: user.id,
             user_name: user.name,
             lobby_id: 0,
             ready: false,
         });
+        ctx.db
+            .game_lobby_cleaner_schedule()
+            .insert(GameLobbyCleanerSchedule {
+                scheduled_id: 0,
+                lobby_id: game_lobby.lobby_id,
+                scheduled_at: ScheduleAt::Time(ctx.timestamp + Duration::from_mins(15)),
+            });
     }
     Ok(())
 }
@@ -283,13 +347,13 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
         ctx.db.game_lobby().user_id().update(game_lobby);
         return;
     }
-    let game_id = game_lobby.lobby_id;
+    let lobby_id = game_lobby.lobby_id;
     ctx.db.game_lobby().user_id().update(game_lobby);
     let game_users = ctx
         .db
         .game_lobby()
         .lobby_id()
-        .filter(game_id)
+        .filter(lobby_id)
         .collect::<Box<_>>();
     let player_count = game_users.len();
     if player_count < GAME_MIN_PLAYER {
@@ -307,6 +371,11 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
         id: 0,
         timeline_users_id: Vec::new(),
         timeline_cards: Vec::new(),
+    });
+    ctx.db.game_live_bot_schedule().insert(GameLiveBotSchedule {
+        scheduled_id: 0,
+        game_id: game.id,
+        scheduled_at: ScheduleAt::Time(ctx.timestamp + GAME_LIVE_BOT_SCHEDULE_DELAY),
     });
 
     let user_ids = game_users.iter().map(|g| g.user_id).collect::<Box<_>>();
@@ -337,14 +406,27 @@ pub fn game_ready(ctx: &ReducerContext, ready: bool) {
         .chain(repeat(Card::Secure))
         .take(player_count * GAME_CARD_START)
         .collect::<Box<_>>();
-    distribute_cards(&mut game_players, &mut cards, &mut ctx.rng());
+    game_players = distribute_cards(game_players, &mut cards, &mut ctx.rng());
 
-    ctx.db.game_lobby().lobby_id().delete(game_id);
+    game_loby_delete(ctx, lobby_id);
     game_players.into_iter().for_each(|row| {
         ctx.db.game_live_player().insert(row);
     });
     game.timeline_users_id.push(starting_player_id);
     ctx.db.game_live().id().update(game);
+}
+
+#[spacetimedb::reducer]
+pub fn game_lobby_cleaner(ctx: &ReducerContext, cleaner: GameLobbyCleanerSchedule) {
+    game_loby_delete(ctx, cleaner.lobby_id);
+}
+
+fn game_loby_delete(ctx: &ReducerContext, lobby_id: u32) {
+    ctx.db
+        .game_lobby_cleaner_schedule()
+        .lobby_id()
+        .delete(lobby_id);
+    ctx.db.game_lobby().lobby_id().delete(lobby_id);
 }
 
 #[derive(SpacetimeType)]
@@ -391,7 +473,7 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
     if pick_player_id == user.id {
         panic!("Cannot pick your own card"); // TODO: error
     }
-    let mut game = ctx
+    let game = ctx
         .db
         .game_live()
         .id()
@@ -401,12 +483,55 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
         panic!("Not your turn"); // TODO: error
     }
 
-    let mut game_players = ctx
+    let game_players = ctx
         .db
         .game_live_player()
         .game_id()
         .filter(game_picker.game_id)
         .collect::<Box<_>>();
+
+    game_pick_card_inner(ctx, game, game_players, pick_player_id, card_idx);
+}
+
+#[spacetimedb::reducer]
+pub fn game_live_bot(ctx: &ReducerContext, schedule: GameLiveBotSchedule) {
+    let game = ctx
+        .db
+        .game_live()
+        .id()
+        .find(schedule.game_id)
+        .expect("Game not found");
+    let game_players = ctx
+        .db
+        .game_live_player()
+        .game_id()
+        .filter(game.id)
+        .collect::<Box<_>>();
+    let current_player_id = game
+        .timeline_users_id
+        .last()
+        .expect("Timeline should not be empty");
+    let (pick_player_id, card_idx) = loop {
+        if let Some(pick_player) = game_players.choose(&mut ctx.rng()) {
+            if pick_player.user_id == *current_player_id {
+                continue;
+            }
+            let card_idx = ctx.rng().gen_range(0..pick_player.cards.len());
+            break (pick_player.user_id, card_idx);
+        }
+    };
+
+    game_pick_card_inner(ctx, game, game_players, pick_player_id, card_idx);
+}
+
+fn game_pick_card_inner(
+    ctx: &ReducerContext,
+    mut game: GameLive,
+    mut game_players: Box<[GameLivePlayer]>,
+    pick_player_id: u32,
+    card_idx: usize,
+) {
+    ctx.db.game_live_bot_schedule().game_id().delete(game.id);
     let player_count = game_players.len();
 
     let game_picked = game_players
@@ -440,25 +565,34 @@ pub fn game_pick_card(ctx: &ReducerContext, pick_player_id: u32, card_idx: u8) {
         return;
     }
 
-    if game.timeline_cards.len().is_multiple_of(player_count) {
+    let game_players = if game.timeline_cards.len().is_multiple_of(player_count) {
         let mut cards = game_players
             .iter()
             .flat_map(|gp| gp.cards.clone())
             .collect::<Box<_>>();
-        distribute_cards(&mut game_players, &mut cards, &mut ctx.rng());
-    }
+        distribute_cards(game_players, &mut cards, &mut ctx.rng())
+    } else {
+        game_players
+    };
 
     for gp in game_players {
         ctx.db.game_live_player().user_id().update(gp);
     }
+
+    let game_id = game.id;
     ctx.db.game_live().id().update(game);
+    ctx.db.game_live_bot_schedule().insert(GameLiveBotSchedule {
+        scheduled_id: 0,
+        game_id,
+        scheduled_at: ScheduleAt::Time(ctx.timestamp + GAME_LIVE_BOT_SCHEDULE_DELAY),
+    });
 }
 
 fn distribute_cards(
-    game_players: &mut [GameLivePlayer],
+    mut game_players: Box<[GameLivePlayer]>,
     cards: &mut Box<[Card]>,
     rng: &mut impl Rng,
-) {
+) -> Box<[GameLivePlayer]> {
     cards.shuffle(rng);
     let cards_per_player = cards.len() / game_players.len();
     game_players
@@ -470,6 +604,7 @@ fn distribute_cards(
             gp.calls_defuse = 0;
             gp.calls_mood = None;
         });
+    game_players
 }
 
 #[spacetimedb::reducer]
@@ -516,8 +651,13 @@ fn process_game_finished(ctx: &ReducerContext, game: &GameLive, game_players: &[
             .collect::<Box<_>>(),
         timeline_cards: game.timeline_cards.clone().into_boxed_slice(),
     });
-    // TODO: Figure out a better way to manage old finished games
-    ctx.db.game_done().id().delete(inserted_game.id - 5);
+    ctx.db
+        .game_done_cleaner_schedule()
+        .insert(GameDoneCleanerSchedule {
+            scheduled_id: 0,
+            scheduled_at: ScheduleAt::Time(ctx.timestamp + Duration::from_hours(24)),
+            game_id: inserted_game.id,
+        });
 }
 
 fn relove_user_game_live(ctx: &ReducerContext) -> (User, GameLivePlayer) {
@@ -535,4 +675,13 @@ fn relove_user_game_live(ctx: &ReducerContext) -> (User, GameLivePlayer) {
         .expect("User not in live game");
 
     (user, player_game)
+}
+
+#[spacetimedb::reducer]
+pub fn game_done_cleaner(ctx: &ReducerContext, schedule: GameDoneCleanerSchedule) {
+    ctx.db.game_done().id().delete(schedule.game_id);
+    ctx.db
+        .game_done_cleaner_schedule()
+        .scheduled_id()
+        .delete(schedule.scheduled_id);
 }
