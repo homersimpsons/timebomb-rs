@@ -9,5 +9,5 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-spacetimedb = { version = "2.10.*" }
+spacetimedb = "2.12.*"
 log = "0.4"

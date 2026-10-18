@@ -1,6 +1,6 @@
-# Time bomb
+# TimeBomb
 
-A time bomb game implemented using [SpacetimeDB](https://spacetimedb.com/home), [Rust](https://rust-lang.org/) and [Nuxt](https://nuxt.com/) / [Nuxt UI](https://ui.nuxt.com/).
+A [TimeBomb](https://iello.fr/jeux/timebomb/) game implemented using [SpacetimeDB](https://spacetimedb.com/home), [Rust](https://rust-lang.org/) and [Nuxt](https://nuxt.com/) / [Nuxt UI](https://ui.nuxt.com/).
 
 ## Development
 

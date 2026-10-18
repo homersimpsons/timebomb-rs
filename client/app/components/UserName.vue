@@ -7,9 +7,10 @@ const toast = useToast()
 
 const [userData] = useTable(tables.me)
 const userUpdate = useReducer(reducers.userUpdate)
-const userUpdateHandler = useDebounceFn((name: string) =>
-  userUpdate({ name }).catch(err => toast.add({ title: 'Erreur', description: err.message })),
-300)
+const userUpdateHandler = useDebounceFn((name: string) => {
+  if (!name) return
+  return userUpdate({ name }).catch(err => toast.add({ title: 'Erreur', description: err.message }))
+}, 300)
 </script>
 
 <template>
