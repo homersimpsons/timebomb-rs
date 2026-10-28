@@ -237,7 +237,7 @@ pub fn game_join(ctx: &ReducerContext, id: Option<GameLiveId>) -> Result<(), Str
 
     if let Some(id) = id {
         let user_count = ctx.db.game_lobby().lobby_id().filter(id).count();
-        if user_count > GAME_MAX_PLAYER {
+        if user_count >= GAME_MAX_PLAYER {
             return Err("Lobby is full".into());
         }
         if user_count == 0 {
